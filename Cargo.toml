@@ -1,0 +1,62 @@
+[package]
+name = "fastdl"
+version = "0.1.0"
+edition = "2021"
+description = "A GPU-accelerated deep learning library built from scratch with Rust and CUDA"
+license = "MIT"
+readme = "README.md"
+keywords = ["deep-learning", "neural-network", "cuda", "gpu", "machine-learning"]
+categories = ["science", "mathematics"]
+
+[lib]
+name = "fastdl"
+path = "src/lib.rs"
+
+[dependencies]
+rand = "0.8"
+rand_distr = "0.4"
+rayon = "1.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode = "1.3"
+log = "0.4"
+env_logger = "0.10"
+thiserror = "1.0"
+num-traits = "0.2"
+bytemuck = { version = "1.14", features = ["derive"] }
+libm = "0.2.16"
+
+[build-dependencies]
+cc = { version = "1.0", features = ["parallel"] }
+glob = "0.3"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+approx = "0.5"
+
+[[example]]
+name = "mnist"
+path = "examples/mnist.rs"
+
+[[example]]
+name = "transformer"
+path = "examples/transformer.rs"
+
+[[example]]
+name = "simple_mlp"
+path = "examples/simple_mlp.rs"
+
+[[bench]]
+name = "tensor_ops"
+harness = false
+path = "benches/tensor_ops.rs"
+
+[features]
+default = ["cuda"]
+cuda = []
+f16 = []
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

@@ -1,0 +1,31 @@
+# Build
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# CUDA build artifacts
+*.o
+*.obj
+*.lib
+*.exp
+*.pdb
+
+# Claude / AI
+.claude/
+CLAUDE.md
+
+# Environment
+.env
+*.log
