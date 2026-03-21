@@ -1,97 +1,380 @@
 <p align="center">
-  <h1 align="center">⚡ fastDL</h1>
+  <h1 align="center">⚡ FastNN</h1>
   <p align="center">
-    <strong>A high-performance deep learning framework built from the ground up in Rust and CUDA.</strong>
+    <strong>A deep learning framework built from scratch in Rust and CUDA — no black boxes, no wrappers, just raw math and metal.</strong>
   </p>
   <p align="center">
+    <a href="#what-is-this">What Is This?</a> •
+    <a href="#understanding-the-building-blocks">Building Blocks</a> •
+    <a href="#how-training-works">How Training Works</a> •
+    <a href="#architecture">Architecture</a> •
     <a href="#installation">Installation</a> •
     <a href="#quick-start">Quick Start</a> •
-    <a href="#features">Features</a> •
-    <a href="#architecture">Architecture</a> •
     <a href="#api-reference">API Reference</a> •
-    <a href="#benchmarks">Benchmarks</a> •
-    <a href="#examples">Examples</a>
+    <a href="#benchmarks">Benchmarks</a>
   </p>
 </p>
 
 ---
 
-fastDL is a GPU-accelerated deep learning library that provides a complete, production-oriented toolkit for building, training, and deploying neural networks. Written entirely from scratch in Rust with hand-tuned CUDA kernels, it combines the safety and expressiveness of Rust's type system with the raw computational power of NVIDIA GPUs.
+## What Is This?
 
-Unlike wrapper libraries, fastDL owns the entire stack — from low-level GPU memory management and kernel dispatch to high-level abstractions like Transformer encoders and learning rate schedulers. Every operation supports both CPU and CUDA execution paths with automatic device-aware dispatch.
+FastNN is a **deep learning library**. Before understanding what FastNN does, it helps to understand what deep learning *is* — and why building one from scratch is hard.
 
-## Key Highlights
+### What Is Deep Learning?
 
-- **Zero-dependency GPU backend** — Custom CUDA kernels for every operation; no reliance on cuDNN or external neural network libraries
-- **cuBLAS-accelerated linear algebra** — Matrix multiplications routed through cuBLAS SGEMM with TF32 tensor core acceleration
-- **Dual-backend architecture** — Every tensor operation transparently dispatches to optimized CPU (pure Rust) or CUDA paths
-- **Reverse-mode automatic differentiation** — Tape-based autograd engine with a dynamically constructed computation graph
-- **Modern architecture support** — Pre-LN Transformer encoders, Multi-Head Attention with causal masking, RMSNorm, GELU/SiLU activations
-- **Memory-safe GPU programming** — RAII-based GPU memory management through Rust's ownership model; no manual `cudaFree` calls
-- **Compute compatibility 7.0–9.0** — Compiled for Volta, Turing, Ampere, Ada Lovelace, and Hopper architectures
+Imagine you want to teach a computer to recognize a cat in a photo. You cannot write rules like "if there are pointy ears and whiskers, it's a cat" — real-world images are too complex and varied for hand-crafted rules.
+
+Instead, you show a computer hundreds of thousands of cat photos, and let it **learn the rules by itself**. That process of learning from examples is called **machine learning**. Deep learning is a specific approach to machine learning that uses structures called **neural networks**.
+
+### What Is a Neural Network?
+
+A neural network is a mathematical structure loosely inspired by how neurons in the brain work. It is composed of **layers** — each layer takes numbers as input, does some math on them, and passes the result forward to the next layer.
+
+```
+Input Image (pixels)
+     ↓
+Layer 1: Detect edges and corners
+     ↓
+Layer 2: Combine edges into shapes
+     ↓
+Layer 3: Combine shapes into patterns (ears, eyes)
+     ↓
+Layer 4: Recognize the animal
+     ↓
+Output: "Cat" (98% confident)
+```
+
+The "deep" in deep learning refers to having many such layers stacked on top of each other. Modern systems have dozens to hundreds of layers.
+
+### What Is FastNN's Role?
+
+FastNN is the **engine** that makes this possible. It handles all the underlying mathematics, memory management, and GPU acceleration so that you can focus on designing neural networks rather than writing low-level code.
+
+Think of FastNN the same way you think of an engine in a car — you do not need to understand every combustion cycle to drive, but without the engine, the car does not move.
 
 ---
 
-## Table of Contents
+## Understanding the Building Blocks
 
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Features](#features)
-  - [Tensor Engine](#tensor-engine)
-  - [CUDA GPU Backend](#cuda-gpu-backend)
-  - [Neural Network Layers](#neural-network-layers)
-  - [Automatic Differentiation](#automatic-differentiation)
-  - [Optimizers](#optimizers)
-  - [Learning Rate Schedulers](#learning-rate-schedulers)
-  - [Data Loading](#data-loading)
-  - [Model Serialization](#model-serialization)
-- [Architecture](#architecture)
-- [API Reference](#api-reference)
-- [Examples](#examples)
-- [Benchmarks](#benchmarks)
-- [CUDA Requirements](#cuda-requirements)
-- [Roadmap](#roadmap)
-- [Contributing](#contributing)
-- [License](#license)
+### Tensors — The Universal Data Container
+
+At the heart of every deep learning framework is the **tensor**. A tensor is simply a multi-dimensional array of numbers.
+
+- A **scalar** (single number) is a 0-dimensional tensor: `5.0`
+- A **vector** (list of numbers) is a 1D tensor: `[1.0, 2.0, 3.0]`
+- A **matrix** (table of numbers) is a 2D tensor: rows × columns
+- A **3D tensor** can represent an image: height × width × color_channels
+- A **4D tensor** represents a batch of images: num_images × height × width × channels
+
+In FastNN, every piece of data — inputs, weights, activations, gradients — is a tensor. Every operation (addition, multiplication, matrix multiply) works on tensors.
+
+```rust
+use fastnn::prelude::*;
+
+// A 3×4 matrix of random numbers
+let a = Tensor::randn(&[3, 4]);
+
+// A batch of 16 grayscale 28×28 images
+let images = Tensor::zeros(&[16, 1, 28, 28]);
+
+// Matrix multiplication: [8, 128] × [128, 64] → [8, 64]
+let output = Tensor::randn(&[8, 128]).matmul(&Tensor::randn(&[128, 64]));
+```
+
+### GPU Acceleration — Why We Need CUDA
+
+A modern CPU has 8–32 cores and can do a handful of things simultaneously. A modern GPU has **thousands of cores** and can perform millions of simple operations in parallel.
+
+Deep learning is perfect for GPUs because neural networks are fundamentally enormous amounts of **matrix multiplication** — multiplying two giant grids of numbers together. A GPU can do these multiplications thousands of times faster than a CPU.
+
+**CUDA** is NVIDIA's programming interface for writing code that runs on their GPUs. FastNN has custom CUDA code (written in a language called CUDA C++) that handles all GPU-accelerated operations.
+
+When you move a tensor to the GPU in FastNN:
+
+```rust
+let x = Tensor::randn(&[1000, 1000]);  // Lives in CPU RAM
+let x_gpu = x.cuda();                   // Copied to GPU VRAM
+let result = x_gpu.matmul(&x_gpu);      // Runs on GPU — much faster
+let back = result.cpu();                // Copy result back to CPU
+```
+
+FastNN uses **cuBLAS** (NVIDIA's highly optimized matrix math library) for the most performance-critical operations, and its own hand-written kernels for everything else.
+
+### Weights — What the Network "Knows"
+
+A neural network learns by adjusting its **weights** — numbers stored inside each layer that determine how the layer transforms its input. Before training, weights are random. After training on millions of examples, they encode everything the network has learned.
+
+A `Linear` layer (also called a fully-connected or dense layer) has a weight matrix and a bias vector:
+
+```
+output = input × weight_matrix + bias
+```
+
+If the input is a 784-dimensional vector (a 28×28 image flattened) and the output needs 512 dimensions, then:
+- `weight_matrix` is shape [512, 784] — that is 401,408 numbers to learn
+- `bias` is shape [512] — another 512 numbers
+
+For perspective, GPT-3 has 175 billion weights.
+
+### Automatic Differentiation — How Learning Happens
+
+Training a neural network means finding the weights that produce the best outputs. We do this with **gradient descent**:
+
+1. Run an input through the network (forward pass)
+2. Compare the output to the correct answer using a **loss function** (a number measuring how wrong we were)
+3. Figure out how much each weight contributed to the error
+4. Nudge each weight in the direction that reduces the error
+5. Repeat millions of times
+
+Step 3 requires computing **gradients** — derivatives of the loss with respect to every weight in the network. This is done with **backpropagation**, which is an application of the chain rule from calculus, applied backward through every layer.
+
+Doing this by hand for complex networks is impractical. FastNN's **autograd engine** does it automatically:
+
+```rust
+// Enable gradient tracking
+fastnn::autograd::graph::enable_grad();
+
+// Variables track their history
+let x = Variable::new(Tensor::randn(&[4, 3])).requires_grad();
+let w = Variable::new(Tensor::randn(&[3, 2])).requires_grad();
+
+// Forward pass — every operation is recorded
+let y = x.matmul(&w);
+let loss = y.mean();
+
+// Backward pass — gradients computed automatically
+let grads = loss.backward();
+
+// Now grads contains ∂loss/∂x and ∂loss/∂w
+```
+
+Internally, FastNN records every operation in a **computation graph** (a chain of recorded operations called a "tape"). Calling `.backward()` replays this tape in reverse, computing how much each operation contributed to the final loss.
+
+### Optimizers — Applying What We Learned
+
+Once we have gradients, an **optimizer** uses them to update the weights. The simplest rule is:
+
+```
+new_weight = old_weight - learning_rate × gradient
+```
+
+A small `learning_rate` (like `0.001`) means small, careful steps. This basic rule is **Stochastic Gradient Descent (SGD)**. More sophisticated optimizers like **Adam** and **AdamW** maintain statistics about past gradients to take smarter steps.
+
+FastNN includes SGD, Adam, and AdamW, all with CUDA kernels that update weights directly on the GPU without copying data back to the CPU.
 
 ---
 
-## Installation
+## How Training Works — End to End
 
-Add fastDL to your `Cargo.toml`:
+Here is the complete cycle of training a neural network, tied back to FastNN's components:
 
-```toml
-[dependencies]
-fastdl = { path = "." }
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      TRAINING LOOP                          │
+│                                                             │
+│  1. DATA LOADING                                            │
+│     DataLoader → fetches a batch of (input, label) pairs    │
+│     Tensors: input [batch_size, features], labels [batch]   │
+│                                                             │
+│  2. FORWARD PASS                                            │
+│     model.forward(input) → runs input through all layers    │
+│     Each layer: Linear, Conv2d, BatchNorm, ReLU, Dropout    │
+│     Output: logits [batch_size, num_classes]                │
+│                                                             │
+│  3. LOSS COMPUTATION                                        │
+│     CrossEntropyLoss(logits, labels) → single scalar        │
+│     "How wrong was the network on this batch?"              │
+│                                                             │
+│  4. BACKWARD PASS (Backpropagation)                         │
+│     loss.backward() → computes ∂loss/∂weight for all weights│
+│     Traverses computation graph in reverse                  │
+│                                                             │
+│  5. OPTIMIZER STEP                                          │
+│     optimizer.step(params, grads) → updates all weights     │
+│     Adam: uses moment estimates for adaptive step sizes     │
+│                                                             │
+│  6. ZERO GRADIENTS                                          │
+│     optimizer.zero_grad() → clears gradients for next step  │
+│                                                             │
+│  Repeat for thousands of batches over many epochs           │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Build Modes
+---
 
-```bash
-# CPU-only build (no CUDA toolkit required)
-cargo build --release --no-default-features
+## What FastNN Provides
 
-# Full build with CUDA GPU support
-cargo build --release
+### Neural Network Layers (`src/nn/`)
 
-# Run the test suite
-cargo test --no-default-features
+Every layer in FastNN implements the `Module` trait — a common interface with `forward()`, `parameters()`, `train()`, and `eval()` methods. Layers can be composed into any architecture using `Sequential`.
 
-# Run performance benchmarks
-cargo bench --no-default-features
+| Layer | What It Does |
+|---|---|
+| `Linear(in, out)` | Fully-connected layer. Multiplies input by a weight matrix and adds bias. The most basic building block. |
+| `Conv2d(in_c, out_c, k, s, p)` | 2D convolution. Slides a small filter (kernel) across an image to detect local patterns. Used in image recognition. |
+| `LSTM(in, hidden, layers)` | Long Short-Term Memory. Processes sequences one step at a time, maintaining a hidden state that carries context across steps. |
+| `GRU(in, hidden)` | Gated Recurrent Unit. A simpler variant of LSTM with fewer parameters. |
+| `MultiHeadAttention(d, heads, drop)` | The key mechanism in Transformers. Lets every position in a sequence attend to every other position, weighted by relevance. |
+| `TransformerEncoder(d, h, ff, n, drop)` | Stack of Transformer encoder blocks. Foundation of models like BERT. |
+| `Embedding(vocab, dim)` | Maps integer token IDs to dense vectors. First layer in any language model. |
+| `BatchNorm2d(channels)` | Normalizes activations across the batch dimension. Stabilizes and accelerates training of CNNs. |
+| `LayerNorm(shape)` | Normalizes activations across the feature dimension. Used in Transformers. |
+| `RMSNorm(size)` | Simplified normalization using only RMS (no mean subtraction). Used in LLaMA. |
+| `Dropout(p)` | Randomly zeroes activations during training to prevent overfitting. |
+| `MaxPool2d(k)` | Downsamples spatial dimensions by keeping only the maximum value in each window. |
+
+### Activation Functions
+
+Activations introduce **non-linearity** — without them, stacking layers would be mathematically equivalent to a single layer, no matter how deep the network. Non-linearity is what allows networks to learn complex patterns.
+
+| Activation | Characteristic |
+|---|---|
+| `ReLU` | Returns max(0, x). Fast, simple, widely used. |
+| `GELU` | Smooth approximation to ReLU. Used in BERT, GPT. |
+| `SiLU / Swish` | x × sigmoid(x). Used in modern efficient networks. |
+| `Sigmoid` | Squashes output to (0, 1). Used in binary classification outputs. |
+| `Tanh` | Squashes output to (-1, 1). Common in RNNs. |
+| `Softmax` | Converts a vector of numbers into probabilities that sum to 1. Used for multi-class classification. |
+
+### Loss Functions
+
+A loss function measures how wrong the network's prediction is. The optimizer minimizes this number.
+
+| Loss | When to Use |
+|---|---|
+| `CrossEntropyLoss` | Multi-class classification (e.g., "is this a cat, dog, or bird?") |
+| `MSELoss` | Regression — predicting a continuous number (e.g., house price) |
+| `BCELoss` | Binary classification — yes/no outputs where sigmoid was applied |
+| `BCEWithLogitsLoss` | Binary classification with raw logits (numerically more stable) |
+
+### Optimizers
+
+| Optimizer | Notes |
+|---|---|
+| `SGD` | Classic. Works well with careful tuning. Supports momentum and Nesterov acceleration. |
+| `Adam` | Adaptive per-parameter learning rates. Usually converges faster than SGD. |
+| `AdamW` | Adam with decoupled weight decay. Standard choice for training Transformers. |
+
+### Learning Rate Schedulers
+
+The learning rate controls how large each update step is. A schedule changes this over training.
+
+| Scheduler | Strategy |
+|---|---|
+| `StepLR` | Multiply learning rate by γ every N steps. Simple step decay. |
+| `CosineAnnealingLR` | Smoothly decay learning rate following a cosine curve. Very popular. |
+| `LinearWarmup` | Gradually increase LR from 0 at the start of training. Prevents instability. |
+| `OneCycleLR` | Warmup to max LR then cosine decay. Fast convergence. |
+
+---
+
+## Architecture
+
+### How FastNN Is Organized
+
+```
+fastnn/
+├── cuda/
+│   ├── kernels.cu              # All GPU code — ~1400 lines of CUDA C++
+│   └── include/kernels.h       # C interface header (how Rust calls CUDA)
+├── src/
+│   ├── lib.rs                  # Library entry point, public API, prelude
+│   ├── tensor/
+│   │   ├── tensor.rs           # Tensor type — the central data structure
+│   │   ├── ops.rs              # All mathematical operations (add, matmul, relu…)
+│   │   └── cuda_backend.rs     # Rust ↔ CUDA bridge (FFI bindings)
+│   ├── autograd/
+│   │   ├── graph.rs            # Computation graph — records operations for backward
+│   │   └── variable.rs         # Variable type — a Tensor that tracks gradients
+│   ├── nn/
+│   │   ├── module.rs           # Module trait — the interface all layers implement
+│   │   ├── sequential.rs       # Sequential — chains multiple layers together
+│   │   ├── linear.rs           # Fully-connected layer
+│   │   ├── conv.rs             # 2D convolution
+│   │   ├── rnn.rs              # LSTM and GRU
+│   │   ├── transformer.rs      # Multi-Head Attention, TransformerEncoder
+│   │   ├── embedding.rs        # Embedding + PositionalEncoding
+│   │   ├── activation.rs       # ReLU, GELU, Sigmoid, Tanh, SiLU…
+│   │   ├── normalization.rs    # BatchNorm2d, LayerNorm, RMSNorm
+│   │   ├── dropout.rs          # Dropout
+│   │   ├── pooling.rs          # MaxPool2d, AvgPool2d, AdaptiveAvgPool2d
+│   │   └── loss.rs             # CrossEntropy, MSE, BCE loss functions
+│   ├── optim/
+│   │   ├── sgd.rs              # SGD optimizer
+│   │   ├── adam.rs             # Adam and AdamW optimizers
+│   │   └── scheduler.rs        # Learning rate schedulers
+│   ├── data/
+│   │   ├── dataset.rs          # Dataset trait + TensorDataset
+│   │   └── dataloader.rs       # DataLoader — batching, shuffling, iteration
+│   ├── cuda/
+│   │   ├── context.rs          # CUDA device setup, memory info
+│   │   └── memory.rs           # CudaBuffer — RAII GPU memory wrapper
+│   ├── serialize/
+│   │   └── checkpoint.rs       # Save/load model weights to .fdl files
+│   └── utils/
+│       └── random.rs           # Global random seed control
+├── examples/
+│   ├── simple_mlp.rs           # XOR problem solved with a small MLP
+│   ├── mnist.rs                # Handwritten digit recognition with a CNN
+│   └── transformer.rs          # Sequence classification with a Transformer
+├── benches/
+│   └── tensor_ops.rs           # Performance benchmarks
+├── build.rs                    # Compiles CUDA code at build time
+└── Cargo.toml                  # Rust project configuration and dependencies
 ```
 
-### CUDA Requirements
+### Key Technical Decisions
+
+**Dual-backend dispatch — one API, two execution paths**
+
+Every tensor operation in FastNN works on both CPU and GPU. Internally, a `Tensor` is either:
+- `TensorStorage::Cpu(Vec<f32>)` — a plain Rust vector in RAM
+- `TensorStorage::Cuda(Arc<CudaBuffer>)` — RAII-managed GPU memory
+
+When you call `a.add(&b)`, FastNN checks which device the tensors live on and dispatches to either the CPU Rust implementation or the CUDA kernel automatically. You never write device-specific code.
+
+**Single CUDA kernel file**
+
+All ~1400 lines of GPU code live in `cuda/kernels.cu`. This keeps the build system simple (one `nvcc` compilation), makes it easy to share CUDA constants and helpers across kernels, and keeps the GPU code easy to navigate.
+
+**cuBLAS for matrix multiplication**
+
+Matrix multiplication is the most computationally expensive operation in deep learning. Rather than writing a custom GEMM kernel, FastNN delegates to cuBLAS — NVIDIA's hand-tuned BLAS library that uses Tensor Cores for TF32 acceleration. Custom kernels handle everything else.
+
+**Convolution via im2col + GEMM**
+
+2D convolution is implemented by first running an `im2col` transformation (unrolling the input into a matrix), then calling cuBLAS GEMM. This reuses the highly optimized matrix multiply path and is simpler to implement correctly than a direct convolution kernel.
+
+**Pre-LayerNorm Transformer**
+
+FastNN's Transformer uses the Pre-LN variant (layer normalization applied *before* the attention/FFN sublayer, not after). Pre-LN training is more stable and is the standard in modern architectures like GPT-2 and beyond.
+
+**RAII GPU memory**
+
+`CudaBuffer` wraps `cudaMalloc` and implements Rust's `Drop` trait, calling `cudaFree` automatically when the buffer goes out of scope. This means it is impossible to leak GPU memory — Rust's ownership system enforces cleanup.
+
+**Tape-based autograd**
+
+When gradient tracking is enabled, every `Variable` operation appends a `GradFn` node to a global tape. Calling `.backward()` reads the tape in reverse order, feeding upstream gradients into each node's gradient function. This is the same approach used by PyTorch and is well-suited for dynamic computation graphs.
+
+**CPU parallelism with Rayon**
+
+On the CPU path, tensor operations use Rayon for data parallelism — the work is split across all available CPU cores automatically.
+
+---
+
+## CUDA Requirements
 
 For GPU-accelerated builds:
 
 | Requirement | Version |
 |---|---|
 | NVIDIA CUDA Toolkit | 12.x |
-| GPU Compute Capability | 7.0+ |
+| GPU Compute Capability | 7.0+ (Volta and newer) |
 | Supported Architectures | Volta, Turing, Ampere, Ada Lovelace, Hopper |
 
-Set the `CUDA_PATH` or `CUDA_HOME` environment variable if CUDA is installed in a non-default location:
+Set `CUDA_PATH` if the toolkit is not in the default location:
 
 ```bash
 # Linux
@@ -101,7 +384,43 @@ export CUDA_PATH=/usr/local/cuda-12.0
 set CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.0
 ```
 
-The build system automatically detects the platform and links against `cudart`, `cublas`, and `curand`.
+The build system links against `cudart` (CUDA runtime), `cublas` (matrix math), and `curand` (random number generation).
+
+---
+
+## Installation
+
+Add FastNN to your `Cargo.toml`:
+
+```toml
+[dependencies]
+fastnn = { path = "." }
+```
+
+### Build Modes
+
+```bash
+# CPU-only build (no CUDA toolkit required — best for development)
+cargo build --release --no-default-features
+
+# Full GPU build
+cargo build --release
+
+# Verify compilation without building
+cargo check --no-default-features
+
+# Run tests
+cargo test --no-default-features
+
+# Run a single test by name
+cargo test --no-default-features test_name
+
+# Run tests in a specific module
+cargo test --no-default-features tensor::ops
+
+# Run benchmarks
+cargo bench --no-default-features
+```
 
 ---
 
@@ -110,46 +429,42 @@ The build system automatically detects the platform and links against `cudart`, 
 ### Basic Tensor Operations
 
 ```rust
-use fastdl::prelude::*;
+use fastnn::prelude::*;
 
 // Create tensors
-let a = Tensor::randn(&[3, 4]);           // Random normal [3x4]
-let b = Tensor::ones(&[3, 4]);            // All ones [3x4]
-let c = Tensor::kaiming_uniform(&[4, 2], 4); // He initialization
+let a = Tensor::randn(&[3, 4]);              // Random normal [3×4]
+let b = Tensor::ones(&[3, 4]);               // All ones [3×4]
 
-// Arithmetic (element-wise, with broadcasting)
+// Arithmetic
 let sum = a.add(&b);
-let product = a.mul(&b);
 let scaled = a.mul_scalar(0.5);
-let result = &a + &b;                     // Operator overloading
+let result = &a + &b;                        // Operator overloading
 
 // Matrix multiplication
 let x = Tensor::randn(&[8, 128]);
 let w = Tensor::randn(&[128, 64]);
-let output = x.matmul(&w);                // [8, 64]
+let output = x.matmul(&w);                   // [8, 64]
 
 // Reductions
-let mean = output.mean();                 // Scalar tensor
-let sum_axis = output.sum_axis(1);        // Sum along columns
-let variance = output.var();
+let mean = output.mean();
+let sum_axis = output.sum_axis(1);           // Sum along columns
 
 // Shape manipulation
 let reshaped = output.reshape(&[2, 4, 64]);
-let transposed = output.transpose();       // [64, 8]
-let flat = output.flatten();               // [512]
-let unsqueezed = output.unsqueeze(0);      // [1, 8, 64]
+let transposed = output.transpose();          // [64, 8]
+let flat = output.flatten();                  // [512]
 
-// Device transfer
-let gpu_tensor = x.cuda();                // Move to GPU
-let cpu_tensor = gpu_tensor.cpu();         // Move back to CPU
+// Device transfer (GPU must be available)
+let gpu_tensor = x.cuda();
+let cpu_tensor = gpu_tensor.cpu();
 ```
 
-### Building and Training a Neural Network
+### Building a Neural Network
 
 ```rust
-use fastdl::prelude::*;
+use fastnn::prelude::*;
 
-// Define model architecture
+// Compose layers into an architecture
 let model = Sequential::new()
     .add(Linear::new(784, 512))
     .add(ReLU)
@@ -161,83 +476,46 @@ let model = Sequential::new()
 
 println!("Parameters: {}", model.num_parameters());
 
-// Loss function and optimizer
-let loss_fn = CrossEntropyLoss::new();
-let mut optimizer = AdamW::new(3e-4)
-    .betas(0.9, 0.999)
-    .weight_decay(0.01);
-
-// Training loop
-let mut params = model.parameters();
-for epoch in 0..num_epochs {
-    for (batch_input, batch_target) in &dataloader {
-        // Forward pass
-        let logits = model.forward(&batch_input);
-
-        // Compute loss
-        let targets: Vec<usize> = batch_target.to_vec()
-            .iter().map(|&v| v as usize).collect();
-        let (loss, grad) = loss_fn.forward_with_grad(&logits, &targets);
-
-        // Backward pass + optimize
-        optimizer.step(&mut params, &grads);
-        optimizer.zero_grad(&params);
-
-        println!("Loss: {:.4}", loss.item());
-    }
-}
+// Forward pass
+let input = Tensor::randn(&[32, 784]);       // Batch of 32 images
+let logits = model.forward(&input);           // [32, 10] class scores
 ```
 
 ### Transformer Encoder
 
 ```rust
-use fastdl::prelude::*;
-use fastdl::nn::embedding::PositionalEncoding;
+use fastnn::prelude::*;
+use fastnn::nn::embedding::PositionalEncoding;
 
-let vocab_size = 32000;
-let d_model = 512;
-let num_heads = 8;
-let d_ff = 2048;
-let num_layers = 6;
+let embedding = Embedding::new(32000, 512);
+let pos_enc = PositionalEncoding::new(512, 4096);
+let encoder = TransformerEncoder::new(512, 8, 2048, 6, 0.1);
+let classifier = Linear::new(512, 10);
 
-// Embedding + positional encoding
-let embedding = Embedding::new(vocab_size, d_model);
-let pos_enc = PositionalEncoding::new(d_model, 4096);
-
-// Transformer encoder stack
-let encoder = TransformerEncoder::new(
-    d_model, num_heads, d_ff, num_layers, 0.1
-);
-
-// Classification head
-let classifier = Linear::new(d_model, num_classes);
-
-// Forward pass
-let token_ids = Tensor::from_vec(/* ... */, &[batch, seq_len]);
+let token_ids = Tensor::from_vec(vec![1.0; 4 * 64], &[4, 64]);
 let embedded = pos_enc.forward(&embedding.forward(&token_ids));
-let encoded = encoder.forward(&embedded);          // [batch, seq_len, d_model]
-let pooled = encoded.mean_axis(1);                 // [batch, d_model]
-let logits = classifier.forward(&pooled);          // [batch, num_classes]
+let encoded = encoder.forward(&embedded);    // [4, 64, 512]
+let pooled = encoded.mean_axis(1);           // [4, 512]
+let logits = classifier.forward(&pooled);    // [4, 10]
 ```
 
-### Convolutional Neural Network
+### Convolutional Network (Image Classification)
 
 ```rust
-use fastdl::prelude::*;
+use fastnn::prelude::*;
 
 // LeNet-style CNN
-let conv1 = Conv2d::new(1, 32, 3, 1, 1);    // [N, 32, 28, 28]
-let conv2 = Conv2d::new(32, 64, 3, 1, 1);   // [N, 64, 28, 28]
-let pool = MaxPool2d::new(2);                 // Spatial /2
-let gap = AdaptiveAvgPool2d::global();        // -> [N, C, 1, 1]
+let conv1 = Conv2d::new(1, 32, 3, 1, 1);
+let conv2 = Conv2d::new(32, 64, 3, 1, 1);
+let pool = MaxPool2d::new(2);
+let gap = AdaptiveAvgPool2d::global();
 let fc = Linear::new(64, 10);
 
-let x = Tensor::randn(&[16, 1, 28, 28]);
+let x = Tensor::randn(&[16, 1, 28, 28]);    // Batch of 16 grayscale images
 
-// Forward
 let x = pool.forward(&conv1.forward(&x).relu());   // [16, 32, 14, 14]
-let x = pool.forward(&conv2.forward(&x).relu());   // [16, 64, 7, 7]
-let x = gap.forward(&x);                            // [16, 64, 1, 1]
+let x = pool.forward(&conv2.forward(&x).relu());   // [16, 64,  7,  7]
+let x = gap.forward(&x);                            // [16, 64,  1,  1]
 let x = x.reshape(&[16, 64]);
 let logits = fc.forward(&x);                        // [16, 10]
 ```
@@ -245,221 +523,41 @@ let logits = fc.forward(&x);                        // [16, 10]
 ### Recurrent Networks
 
 ```rust
-use fastdl::prelude::*;
+use fastnn::prelude::*;
 
 // LSTM for sequence modeling
-let lstm = LSTM::new(128, 256, 2);   // input=128, hidden=256, layers=2
-let input = Tensor::randn(&[4, 50, 128]); // [batch, seq_len, features]
+let lstm = LSTM::new(128, 256, 2);           // input_size=128, hidden=256, layers=2
+let input = Tensor::randn(&[4, 50, 128]);    // [batch, seq_len, features]
 
 let (output, h_n, c_n) = lstm.forward_seq(&input, None);
-// output: [4, 50, 256] — hidden states at each timestep
+// output: [4, 50, 256] — hidden state at every timestep
 // h_n:    [4, 256]     — final hidden state
 // c_n:    [4, 256]     — final cell state
-
-// GRU variant
-let gru = GRU::new(128, 256);
-let (output, h_n) = gru.forward_seq(&input, None);
 ```
-
----
-
-## Features
-
-### Tensor Engine
-
-The tensor system is the foundation of fastDL. Tensors are N-dimensional arrays that can live on CPU or GPU memory, with seamless device transfer.
-
-| Operation | Description |
-|---|---|
-| `Tensor::zeros`, `ones`, `full`, `rand`, `randn` | Standard constructors |
-| `Tensor::arange`, `linspace`, `eye` | Sequence and identity constructors |
-| `Tensor::kaiming_uniform`, `xavier_uniform` | Neural network weight initialization |
-| `add`, `sub`, `mul`, `div` | Element-wise arithmetic with broadcasting |
-| `matmul` | Matrix multiplication (2D and batched 3D via cuBLAS) |
-| `transpose`, `permute`, `reshape`, `flatten` | Shape manipulation |
-| `unsqueeze`, `squeeze`, `expand`, `repeat` | Dimension manipulation |
-| `cat`, `stack` | Tensor concatenation and stacking |
-| `sum`, `mean`, `max_val`, `min_val`, `var` | Global reductions |
-| `sum_axis`, `mean_axis`, `argmax` | Per-axis reductions |
-| `relu`, `sigmoid`, `tanh_act`, `gelu`, `silu` | In-place activations |
-| `softmax`, `log_softmax` | Normalized probability distributions |
-| `exp`, `log`, `sqrt`, `abs`, `neg`, `pow_scalar` | Unary math |
-| `clamp` | Value clamping |
-| `to_device`, `cuda`, `cpu` | Device transfer |
-| `item` | Extract scalar from 1-element tensor |
-
-Broadcasting follows NumPy semantics — dimensions are matched from the right, and size-1 dimensions are expanded.
-
-### CUDA GPU Backend
-
-All tensor operations dispatch to optimized CUDA kernels when the tensor resides on GPU memory. The GPU backend includes:
-
-**Element-wise Kernels**
-- Vectorized element-wise operations (add, sub, mul, div, pow, sqrt, exp, log)
-- Fused scalar operations (add_scalar, mul_scalar)
-- All activations with both forward and backward kernels
-
-**Linear Algebra**
-- cuBLAS SGEMM with TF32 tensor core math mode for matrix multiplication
-- Batched strided GEMM for multi-head attention and batched operations
-- Tiled transpose kernel with shared memory and bank-conflict avoidance
-
-**Convolution**
-- im2col transformation kernel for unrolling convolution into matrix multiplication
-- col2im kernel for the backward pass
-- Convolution computed as im2col + cuBLAS GEMM for optimal performance
-
-**Reduction Kernels**
-- Two-pass parallel reduction with warp-level primitives (no sync needed in final warp)
-- Atomic operations for multi-block reductions
-- Specialized argmax kernels for both global and per-axis computation
-
-**Normalization**
-- BatchNorm: parallel mean/variance computation per channel with running statistics
-- LayerNorm: shared-memory reduction across the normalized dimension
-- RMSNorm: single-pass RMS computation
-
-**Attention**
-- Scaled dot-product attention with causal mask support
-- Fused with softmax normalization
-
-**Optimizer Kernels**
-- SGD with momentum, dampening, Nesterov, and weight decay — all in a single kernel launch
-- Adam/AdamW with bias correction, AMSGrad support, and decoupled weight decay
-
-### Neural Network Layers
-
-Every layer implements the `Module` trait:
-
-```rust
-pub trait Module: Send + Sync {
-    fn forward(&self, input: &Tensor) -> Tensor;
-    fn parameters(&self) -> Vec<Tensor>;
-    fn named_parameters(&self) -> HashMap<String, Tensor>;
-    fn train(&mut self);
-    fn eval(&mut self);
-    fn num_parameters(&self) -> usize;
-    fn zero_grad(&self);
-}
-```
-
-**Available Layers:**
-
-| Layer | Description | Parameters |
-|---|---|---|
-| `Linear(in, out)` | Fully-connected / dense | Weight `[out, in]`, Bias `[out]` |
-| `Conv2d(in_c, out_c, k, s, p)` | 2D convolution | Weight `[out_c, in_c, k, k]`, Bias `[out_c]` |
-| `LSTM(in, hidden, layers)` | Long Short-Term Memory | W_ih, W_hh, b_ih, b_hh per gate |
-| `GRU(in, hidden)` | Gated Recurrent Unit | W_ih, W_hh, b_ih, b_hh |
-| `MultiHeadAttention(d, heads, drop)` | Multi-head scaled dot-product attention | Q/K/V/Out projections |
-| `TransformerEncoderLayer(d, h, ff, drop)` | Pre-LN transformer block | Attention + FFN + 2x LayerNorm |
-| `TransformerEncoder(d, h, ff, n, drop)` | Stacked encoder layers | n × EncoderLayer + final norm |
-| `Embedding(vocab, dim)` | Token embedding lookup table | Weight `[vocab, dim]` |
-| `PositionalEncoding(d, max_len)` | Sinusoidal position encoding | None (deterministic) |
-| `BatchNorm2d(channels)` | Batch normalization (4D) | Gamma, Beta, Running stats |
-| `LayerNorm(shape)` | Layer normalization | Gamma, Beta |
-| `RMSNorm(size)` | RMS normalization (LLaMA-style) | Gamma |
-| `Dropout(p)` | Inverted dropout | None |
-| `MaxPool2d(k)` | Max pooling | None |
-| `AvgPool2d(k)` | Average pooling | None |
-| `AdaptiveAvgPool2d(h, w)` | Adaptive average pooling | None |
-| `Sequential` | Layer container | Sum of children |
-
-**Activation Functions:**
-
-| Function | Formula | Backward |
-|---|---|---|
-| `ReLU` | max(0, x) | 1 if x > 0, else 0 |
-| `LeakyReLU(α)` | max(αx, x) | α if x < 0, else 1 |
-| `Sigmoid` | 1 / (1 + e^(-x)) | σ(1 - σ) |
-| `Tanh` | (e^x - e^(-x)) / (e^x + e^(-x)) | 1 - tanh²(x) |
-| `GELU` | 0.5x(1 + erf(x/√2)) | Φ(x) + xφ(x) |
-| `SiLU` / Swish | x · σ(x) | σ(x)(1 + x(1-σ(x))) |
-| `Softmax` | e^(xi) / Σe^(xj) | Jacobian-vector product |
 
 ### Automatic Differentiation
 
-fastDL implements reverse-mode automatic differentiation (backpropagation) through a tape-based computation graph.
-
 ```rust
-use fastdl::prelude::*;
+use fastnn::prelude::*;
 
-// Enable gradient tracking
-fastdl::autograd::graph::enable_grad();
+fastnn::autograd::graph::enable_grad();
 
-// Create differentiable variables
 let x = Variable::new(Tensor::randn(&[4, 3])).requires_grad();
 let w = Variable::new(Tensor::randn(&[3, 2])).requires_grad();
 
-// Forward (recorded on tape)
 let y = x.matmul(&w);
 let loss = y.mean();
 
-// Backward
 let grads = loss.backward();
-
-// Access gradients
-let dx = grads.get(&x.id());   // ∂loss/∂x
-let dw = grads.get(&w.id());   // ∂loss/∂w
-```
-
-**Supported differentiable operations:**
-- Arithmetic: `add`, `sub`, `mul`, `matmul`, `mul_scalar`, `add_scalar`
-- Activations: `relu`, `sigmoid`, `tanh_act`, `gelu`, `softmax`, `log_softmax`
-- Reductions: `sum`, `mean`
-- Shape: `reshape`
-- Each operation records a `GradFn` that implements the chain rule for backward.
-
-### Optimizers
-
-| Optimizer | Key Features |
-|---|---|
-| `SGD` | Momentum, Nesterov acceleration, L2 weight decay |
-| `Adam` | Adaptive learning rates, bias correction, L2 regularization |
-| `AdamW` | Decoupled weight decay (Loshchilov & Hutter, 2019), bias correction |
-
-```rust
-// SGD with momentum and Nesterov
-let mut sgd = SGD::new(0.01)
-    .momentum(0.9)
-    .weight_decay(1e-4)
-    .nesterov(true);
-
-// Adam
-let mut adam = Adam::new(1e-3)
-    .betas(0.9, 0.999)
-    .epsilon(1e-8);
-
-// AdamW (recommended for transformers)
-let mut adamw = AdamW::new(3e-4)
-    .betas(0.9, 0.95)
-    .weight_decay(0.1);
-```
-
-### Learning Rate Schedulers
-
-| Scheduler | Strategy |
-|---|---|
-| `StepLR(base_lr, step_size, gamma)` | Multiply LR by γ every N epochs |
-| `CosineAnnealingLR(base_lr, total_steps)` | Cosine decay to minimum LR |
-| `LinearWarmup(base_lr, warmup_steps)` | Linear warmup from 0 to base LR |
-| `OneCycleLR(max_lr, total_steps)` | Warmup + cosine decay (Smith, 2018) |
-
-```rust
-let mut scheduler = CosineAnnealingLR::new(1e-3, 10000)
-    .min_lr(1e-6);
-
-for step in 0..10000 {
-    // ... training step ...
-    scheduler.step(&mut optimizer);
-}
+let dx = grads.get(&x.id());                // ∂loss/∂x
+let dw = grads.get(&w.id());                // ∂loss/∂w
 ```
 
 ### Data Loading
 
 ```rust
-use fastdl::prelude::*;
-use fastdl::data::dataset::TensorDataset;
+use fastnn::prelude::*;
+use fastnn::data::dataset::TensorDataset;
 
 let inputs = Tensor::randn(&[10000, 784]);
 let labels = Tensor::randn(&[10000, 1]);
@@ -475,20 +573,20 @@ for (batch_x, batch_y) in loader.iter() {
 }
 ```
 
-The `Dataset` trait is generic — implement `len()` and `get(index)` for custom datasets:
+Custom datasets implement two methods:
 
 ```rust
-struct MyDataset { /* ... */ }
+struct MyDataset { /* your data */ }
 
 impl Dataset for MyDataset {
-    fn len(&self) -> usize { /* ... */ }
-    fn get(&self, index: usize) -> (Tensor, Tensor) { /* ... */ }
+    fn len(&self) -> usize { /* total number of samples */ }
+    fn get(&self, index: usize) -> (Tensor, Tensor) { /* return one (input, label) pair */ }
 }
 ```
 
-### Model Serialization
+### Model Checkpointing
 
-fastDL uses a compact binary checkpoint format (`.fdl`):
+FastNN saves weights in a compact binary format (`.fdl` extension):
 
 ```
 Header:  magic(4B) + version(4B) + num_tensors(4B)
@@ -496,106 +594,42 @@ Tensor:  name_len(4B) + name(UTF-8) + ndim(4B) + shape(4B × ndim) + data(4B × 
 ```
 
 ```rust
-use fastdl::prelude::*;
+use fastnn::prelude::*;
 
-// Save
 save_model(&model, "checkpoint.fdl").unwrap();
 
-// Load
 let params = load_tensors("checkpoint.fdl").unwrap();
 ```
 
-### Loss Functions
-
-| Loss | Use Case | Input |
-|---|---|---|
-| `CrossEntropyLoss` | Multi-class classification | Logits `[B, C]` + class indices |
-| `MSELoss` | Regression | Predictions + targets |
-| `BCELoss` | Binary classification (probabilities) | Sigmoid outputs + binary targets |
-| `BCEWithLogitsLoss` | Binary classification (numerically stable) | Raw logits + binary targets |
-
-All loss functions provide `forward()` for loss only, and `forward_with_grad()` for loss + gradient w.r.t. input.
-
 ---
 
-## Architecture
+## API Reference
 
-```
-fastDL/
-├── cuda/
-│   ├── kernels.cu                 # CUDA kernel implementations (~1400 lines)
-│   └── include/
-│       └── kernels.h              # C FFI interface declarations
-├── src/
-│   ├── lib.rs                     # Crate root, public API, prelude
-│   ├── tensor/
-│   │   ├── tensor.rs              # Tensor struct, constructors, shape ops, device transfer
-│   │   ├── ops.rs                 # Tensor operations with CPU/CUDA dispatch
-│   │   └── cuda_backend.rs        # FFI bindings + CUDA helper functions
-│   ├── autograd/
-│   │   ├── graph.rs               # Computation graph, backward pass, global state
-│   │   └── variable.rs            # Differentiable variable + GradFn implementations
-│   ├── nn/
-│   │   ├── module.rs              # Module trait definition
-│   │   ├── sequential.rs          # Sequential layer container
-│   │   ├── linear.rs              # Fully-connected layer
-│   │   ├── conv.rs                # 2D convolution
-│   │   ├── rnn.rs                 # LSTM, GRU
-│   │   ├── transformer.rs         # Multi-Head Attention, Transformer Encoder
-│   │   ├── embedding.rs           # Embedding + Positional Encoding
-│   │   ├── activation.rs          # Activation function layers
-│   │   ├── normalization.rs       # BatchNorm2d, LayerNorm, RMSNorm
-│   │   ├── dropout.rs             # Dropout
-│   │   ├── pooling.rs             # MaxPool2d, AvgPool2d, AdaptiveAvgPool2d
-│   │   └── loss.rs                # Loss functions
-│   ├── optim/
-│   │   ├── sgd.rs                 # SGD optimizer
-│   │   ├── adam.rs                # Adam, AdamW optimizers
-│   │   └── scheduler.rs           # Learning rate schedulers
-│   ├── data/
-│   │   ├── dataset.rs             # Dataset trait, TensorDataset, VecDataset
-│   │   └── dataloader.rs          # DataLoader with batching and shuffling
-│   ├── cuda/
-│   │   ├── context.rs             # CUDA device initialization, memory info
-│   │   └── memory.rs              # CudaBuffer (RAII GPU memory)
-│   ├── serialize/
-│   │   └── checkpoint.rs          # Binary checkpoint save/load
-│   └── utils/
-│       └── random.rs              # Global RNG seeding
-├── examples/
-│   ├── simple_mlp.rs              # XOR problem with MLP
-│   ├── mnist.rs                   # CNN image classification
-│   └── transformer.rs             # Transformer sequence classification
-├── benches/
-│   └── tensor_ops.rs              # Criterion benchmarks
-├── build.rs                       # CUDA compilation via cc crate + nvcc
-├── Cargo.toml
-└── README.md
-```
+### Tensor Operations
 
-### Design Decisions
-
-**Single CUDA kernel file** — All GPU kernels reside in `cuda/kernels.cu` rather than being split across files. This simplifies the build system (single `nvcc` invocation) and makes it straightforward to share constants, helper macros, and the cuBLAS handle across all kernels.
-
-**im2col convolution** — Convolution is implemented via im2col + cuBLAS GEMM rather than direct convolution or Winograd. This approach reuses the highly optimized cuBLAS matrix multiplication and is simpler to implement correctly, while providing competitive performance for most kernel sizes.
-
-**Pre-LN Transformer** — The transformer encoder uses the Pre-LayerNorm variant (norm before attention/FFN) rather than Post-LN. Pre-LN is more stable during training and has become the standard in modern architectures.
-
-**Tape-based autograd** — Operations are recorded to a global tape in forward order, then replayed in reverse during backward. This is simpler than a DAG-based approach and sufficient for the supported operation set.
-
-**RAII GPU memory** — `CudaBuffer` wraps raw CUDA allocations with Rust's `Drop` trait, ensuring GPU memory is freed when the buffer goes out of scope. This eliminates memory leaks that are common in C/C++ CUDA code.
+| Category | Operations |
+|---|---|
+| Constructors | `zeros`, `ones`, `full`, `rand`, `randn`, `arange`, `linspace`, `eye`, `from_vec` |
+| Initialization | `kaiming_uniform`, `xavier_uniform` |
+| Arithmetic | `add`, `sub`, `mul`, `div`, `neg`, `abs`, `pow_scalar` |
+| Linear algebra | `matmul` (2D and batched 3D via cuBLAS) |
+| Shape | `reshape`, `flatten`, `transpose`, `permute`, `unsqueeze`, `squeeze`, `expand`, `repeat` |
+| Combining | `cat`, `stack` |
+| Reductions | `sum`, `mean`, `max_val`, `min_val`, `var`, `sum_axis`, `mean_axis`, `argmax` |
+| Activations | `relu`, `sigmoid`, `tanh_act`, `gelu`, `silu`, `softmax`, `log_softmax` |
+| Math | `exp`, `log`, `sqrt`, `clamp` |
+| Device | `cuda()`, `cpu()`, `to_device()` |
+| Scalar extract | `item()` |
 
 ---
 
 ## Examples
 
-### Run Examples
-
 ```bash
-# Simple MLP on XOR problem
+# Small MLP solving the XOR problem
 cargo run --example simple_mlp --no-default-features
 
-# CNN classifier (synthetic MNIST-like data)
+# CNN for handwritten digit recognition
 cargo run --example mnist --no-default-features
 
 # Transformer encoder for sequence classification
@@ -606,54 +640,60 @@ cargo run --example transformer --no-default-features
 
 ## Benchmarks
 
-Run the benchmark suite:
-
 ```bash
 cargo bench --no-default-features
 ```
-
-Available benchmarks:
 
 | Benchmark | Description |
 |---|---|
 | `matmul_128x256_x_256x128` | Rectangular matrix multiplication |
 | `matmul_512x512` | Square matrix multiplication |
-| `relu_1M_elements` | ReLU activation on 1M elements |
-| `softmax_64x1000` | Softmax over 1000 classes |
-| `add_1M_elements` | Element-wise addition (1M elements) |
-| `mul_1M_elements` | Element-wise multiplication (1M elements) |
+| `relu_1M_elements` | ReLU activation over 1 million values |
+| `softmax_64x1000` | Softmax over 1000 classes, batch of 64 |
+| `add_1M_elements` | Element-wise addition, 1 million values |
+| `mul_1M_elements` | Element-wise multiplication, 1 million values |
+
+---
+
+## Known Limitations (Current State)
+
+FastNN is in active development. These are critical gaps that affect real-world usability:
+
+- **Training loops are not yet functional** — The three examples compile and run, but they use placeholder zero gradients. No actual weight updates occur, so no learning happens.
+- **Autograd and Module are not yet connected** — The `Variable` autograd system and the `Module` layer system operate independently. Layers do not yet participate in the computation graph.
+- **Several backward passes are missing** — `Transpose`/`Permute`, `Expand`/`Repeat`, `Cat`/`Stack`, `Squeeze`/`Unsqueeze`, `Div`, and `Pow` do not yet have backward implementations.
+- **Optimizer step is a stub** — Optimizers exist but do not yet receive gradients from the autograd engine.
+
+The most impactful next step is bridging `Variable` autograd to `Module.forward()`.
 
 ---
 
 ## Roadmap
 
+- [ ] Connect autograd engine to Module layers (critical path)
+- [ ] Working end-to-end training loop
 - [ ] Mixed-precision training (FP16/BF16)
-- [ ] Multi-GPU data parallelism
-- [ ] 1D and 3D convolutions
-- [ ] Deconvolution / transposed convolution
-- [ ] Gradient checkpointing for memory-efficient training
-- [ ] ONNX model export
 - [ ] Flash Attention v2
-- [ ] Custom CUDA kernel JIT compilation
-- [ ] Distributed training across nodes
+- [ ] 1D and 3D convolutions
+- [ ] Gradient checkpointing
+- [ ] Multi-GPU data parallelism
+- [ ] ONNX model export
+- [ ] Built-in dataset downloaders (MNIST, CIFAR-10)
 - [ ] Weight quantization (INT8, INT4)
-- [ ] Dynamic batching and variable-length sequence support
-- [ ] Built-in dataset downloaders (MNIST, CIFAR-10, ImageNet)
 
 ---
 
 ## Contributing
 
-Contributions are welcome. Please open an issue to discuss any significant changes before submitting a pull request.
+Contributions are welcome. Open an issue to discuss significant changes before submitting a pull request.
 
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/my-feature`)
-3. Ensure `cargo check --no-default-features` passes
-4. Commit your changes
-5. Push to the branch and open a pull request
+2. Create your branch: `git checkout -b feature/my-feature`
+3. Verify: `cargo check --no-default-features`
+4. Commit and open a pull request
 
 ---
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+MIT License. See [LICENSE](LICENSE) for details.
