@@ -25,6 +25,7 @@ desktop.ini
 # Claude / AI
 .claude/
 CLAUDE.md
+TODO.md
 
 # Environment
 .env
