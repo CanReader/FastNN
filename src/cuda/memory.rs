@@ -1,12 +1,12 @@
 use std::fmt;
 
 extern "C" {
-    fn fastdl_cuda_malloc(ptr: *mut *mut f32, size: usize) -> i32;
-    fn fastdl_cuda_free(ptr: *mut f32) -> i32;
-    fn fastdl_cuda_memcpy_h2d(dst: *mut f32, src: *const f32, size: usize) -> i32;
-    fn fastdl_cuda_memcpy_d2h(dst: *mut f32, src: *const f32, size: usize) -> i32;
-    fn fastdl_cuda_memcpy_d2d(dst: *mut f32, src: *const f32, size: usize) -> i32;
-    fn fastdl_cuda_memset(ptr: *mut f32, value: i32, size: usize) -> i32;
+    fn fastnn_cuda_malloc(ptr: *mut *mut f32, size: usize) -> i32;
+    fn fastnn_cuda_free(ptr: *mut f32) -> i32;
+    fn fastnn_cuda_memcpy_h2d(dst: *mut f32, src: *const f32, size: usize) -> i32;
+    fn fastnn_cuda_memcpy_d2h(dst: *mut f32, src: *const f32, size: usize) -> i32;
+    fn fastnn_cuda_memcpy_d2d(dst: *mut f32, src: *const f32, size: usize) -> i32;
+    fn fastnn_cuda_memset(ptr: *mut f32, value: i32, size: usize) -> i32;
 }
 
 /// RAII wrapper for GPU memory allocation.
@@ -25,7 +25,7 @@ impl CudaBuffer {
     pub fn new(len: usize) -> Result<Self, String> {
         let mut ptr: *mut f32 = std::ptr::null_mut();
         let size = len * std::mem::size_of::<f32>();
-        let ret = unsafe { fastdl_cuda_malloc(&mut ptr, size) };
+        let ret = unsafe { fastnn_cuda_malloc(&mut ptr, size) };
         if ret != 0 {
             return Err(format!("Failed to allocate {} bytes on GPU", size));
         }
@@ -35,7 +35,7 @@ impl CudaBuffer {
     /// Allocate and zero-initialize.
     pub fn zeros(len: usize) -> Result<Self, String> {
         let buf = Self::new(len)?;
-        let ret = unsafe { fastdl_cuda_memset(buf.ptr, 0, len * std::mem::size_of::<f32>()) };
+        let ret = unsafe { fastnn_cuda_memset(buf.ptr, 0, len * std::mem::size_of::<f32>()) };
         if ret != 0 {
             return Err("Failed to zero GPU memory".to_string());
         }
@@ -46,7 +46,7 @@ impl CudaBuffer {
     pub fn copy_from_host(&self, data: &[f32]) -> Result<(), String> {
         assert!(data.len() <= self.len, "Source data larger than GPU buffer");
         let size = data.len() * std::mem::size_of::<f32>();
-        let ret = unsafe { fastdl_cuda_memcpy_h2d(self.ptr, data.as_ptr(), size) };
+        let ret = unsafe { fastnn_cuda_memcpy_h2d(self.ptr, data.as_ptr(), size) };
         if ret != 0 {
             Err("H2D memcpy failed".to_string())
         } else {
@@ -58,7 +58,7 @@ impl CudaBuffer {
     pub fn copy_to_host(&self, data: &mut [f32]) -> Result<(), String> {
         assert!(data.len() <= self.len, "Destination buffer smaller than GPU buffer");
         let size = data.len() * std::mem::size_of::<f32>();
-        let ret = unsafe { fastdl_cuda_memcpy_d2h(data.as_mut_ptr(), self.ptr, size) };
+        let ret = unsafe { fastnn_cuda_memcpy_d2h(data.as_mut_ptr(), self.ptr, size) };
         if ret != 0 {
             Err("D2H memcpy failed".to_string())
         } else {
@@ -70,7 +70,7 @@ impl CudaBuffer {
     pub fn copy_from_device(&self, other: &CudaBuffer) -> Result<(), String> {
         assert!(other.len <= self.len, "Source buffer larger than destination");
         let size = other.len * std::mem::size_of::<f32>();
-        let ret = unsafe { fastdl_cuda_memcpy_d2d(self.ptr, other.ptr, size) };
+        let ret = unsafe { fastnn_cuda_memcpy_d2d(self.ptr, other.ptr, size) };
         if ret != 0 {
             Err("D2D memcpy failed".to_string())
         } else {
@@ -116,7 +116,7 @@ impl CudaBuffer {
 impl Drop for CudaBuffer {
     fn drop(&mut self) {
         if !self.ptr.is_null() {
-            unsafe { fastdl_cuda_free(self.ptr) };
+            unsafe { fastnn_cuda_free(self.ptr) };
             self.ptr = std::ptr::null_mut();
         }
     }

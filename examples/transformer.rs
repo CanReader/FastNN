@@ -2,11 +2,11 @@
 //!
 //! Demonstrates building a Transformer encoder for sequence classification.
 
-use fastdl::prelude::*;
-use fastdl::nn::embedding::PositionalEncoding;
+use fastnn::prelude::*;
+use fastnn::nn::embedding::PositionalEncoding;
 
 fn main() {
-    println!("fastDL — Transformer Encoder");
+    println!("FastNN — Transformer Encoder");
     println!("============================\n");
 
     manual_seed(42);

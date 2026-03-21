@@ -1,11 +1,11 @@
-//! # fastDL — GPU-Accelerated Deep Learning Library
+//! # FastNN — GPU-Accelerated Deep Learning Library
 //!
 //! A deep learning library built from scratch in Rust with CUDA GPU acceleration.
 //!
 //! ## Quick Start
 //!
 //! ```rust,no_run
-//! use fastdl::prelude::*;
+//! use fastnn::prelude::*;
 //!
 //! // Create tensors
 //! let x = Tensor::randn(&[32, 784]);
@@ -26,7 +26,7 @@ pub mod cuda;
 pub mod serialize;
 pub mod utils;
 
-/// Prelude — import everything you need with `use fastdl::prelude::*`.
+/// Prelude — import everything you need with `use fastnn::prelude::*`.
 pub mod prelude {
     pub use crate::tensor::{Tensor, Device};
     pub use crate::nn::{

@@ -11,62 +11,62 @@ use crate::cuda::CudaBuffer;
 impl Tensor {
     /// Element-wise addition.
     pub fn add(&self, other: &Tensor) -> Tensor {
-        self.binary_op(other, |a, b| a + b, cuda_backend::fastdl_cuda_add)
+        self.binary_op(other, |a, b| a + b, cuda_backend::fastnn_cuda_add)
     }
 
     /// Element-wise subtraction.
     pub fn sub(&self, other: &Tensor) -> Tensor {
-        self.binary_op(other, |a, b| a - b, cuda_backend::fastdl_cuda_sub)
+        self.binary_op(other, |a, b| a - b, cuda_backend::fastnn_cuda_sub)
     }
 
     /// Element-wise multiplication (Hadamard product).
     pub fn mul(&self, other: &Tensor) -> Tensor {
-        self.binary_op(other, |a, b| a * b, cuda_backend::fastdl_cuda_mul)
+        self.binary_op(other, |a, b| a * b, cuda_backend::fastnn_cuda_mul)
     }
 
     /// Element-wise division.
     pub fn div(&self, other: &Tensor) -> Tensor {
-        self.binary_op(other, |a, b| a / b, cuda_backend::fastdl_cuda_div)
+        self.binary_op(other, |a, b| a / b, cuda_backend::fastnn_cuda_div)
     }
 
     /// Add scalar to all elements.
     pub fn add_scalar(&self, scalar: f32) -> Tensor {
-        self.scalar_op(scalar, |a, s| a + s, cuda_backend::fastdl_cuda_add_scalar)
+        self.scalar_op(scalar, |a, s| a + s, cuda_backend::fastnn_cuda_add_scalar)
     }
 
     /// Multiply all elements by scalar.
     pub fn mul_scalar(&self, scalar: f32) -> Tensor {
-        self.scalar_op(scalar, |a, s| a * s, cuda_backend::fastdl_cuda_mul_scalar)
+        self.scalar_op(scalar, |a, s| a * s, cuda_backend::fastnn_cuda_mul_scalar)
     }
 
     /// Raise all elements to a power.
     pub fn pow_scalar(&self, scalar: f32) -> Tensor {
-        self.scalar_op(scalar, |a, s| a.powf(s), cuda_backend::fastdl_cuda_pow_scalar)
+        self.scalar_op(scalar, |a, s| a.powf(s), cuda_backend::fastnn_cuda_pow_scalar)
     }
 
     /// Element-wise square root.
     pub fn sqrt(&self) -> Tensor {
-        self.unary_op(|a| a.sqrt(), cuda_backend::fastdl_cuda_sqrt)
+        self.unary_op(|a| a.sqrt(), cuda_backend::fastnn_cuda_sqrt)
     }
 
     /// Element-wise absolute value.
     pub fn abs(&self) -> Tensor {
-        self.unary_op(|a| a.abs(), cuda_backend::fastdl_cuda_abs)
+        self.unary_op(|a| a.abs(), cuda_backend::fastnn_cuda_abs)
     }
 
     /// Element-wise negation.
     pub fn neg(&self) -> Tensor {
-        self.unary_op(|a| -a, cuda_backend::fastdl_cuda_neg)
+        self.unary_op(|a| -a, cuda_backend::fastnn_cuda_neg)
     }
 
     /// Element-wise exponential.
     pub fn exp(&self) -> Tensor {
-        self.unary_op(|a| a.exp(), cuda_backend::fastdl_cuda_exp)
+        self.unary_op(|a| a.exp(), cuda_backend::fastnn_cuda_exp)
     }
 
     /// Element-wise natural log.
     pub fn log(&self) -> Tensor {
-        self.unary_op(|a| a.ln(), cuda_backend::fastdl_cuda_log)
+        self.unary_op(|a| a.ln(), cuda_backend::fastnn_cuda_log)
     }
 
     /// Clamp all elements to [min_val, max_val].
@@ -79,7 +79,7 @@ impl Tensor {
             TensorStorage::Cuda(buf) => {
                 let out = CudaBuffer::new(self.numel()).expect("alloc failed");
                 unsafe {
-                    cuda_backend::fastdl_cuda_clamp(buf.as_ptr(), min_val, max_val, out.ptr(), self.numel());
+                    cuda_backend::fastnn_cuda_clamp(buf.as_ptr(), min_val, max_val, out.ptr(), self.numel());
                 }
                 Tensor::from_cuda_buffer(out, self.shape.clone(), self.requires_grad)
             }
@@ -91,28 +91,28 @@ impl Tensor {
     // ========================================================================
 
     pub fn relu(&self) -> Tensor {
-        self.unary_op(|a| a.max(0.0), cuda_backend::fastdl_cuda_relu)
+        self.unary_op(|a| a.max(0.0), cuda_backend::fastnn_cuda_relu)
     }
 
     pub fn sigmoid(&self) -> Tensor {
-        self.unary_op(|a| 1.0 / (1.0 + (-a).exp()), cuda_backend::fastdl_cuda_sigmoid)
+        self.unary_op(|a| 1.0 / (1.0 + (-a).exp()), cuda_backend::fastnn_cuda_sigmoid)
     }
 
     pub fn tanh_act(&self) -> Tensor {
-        self.unary_op(|a| a.tanh(), cuda_backend::fastdl_cuda_tanh_forward)
+        self.unary_op(|a| a.tanh(), cuda_backend::fastnn_cuda_tanh_forward)
     }
 
     pub fn gelu(&self) -> Tensor {
         self.unary_op(
             |a| 0.5 * a * (1.0 + libm::erff(a * std::f32::consts::FRAC_1_SQRT_2)),
-            cuda_backend::fastdl_cuda_gelu,
+            cuda_backend::fastnn_cuda_gelu,
         )
     }
 
     pub fn silu(&self) -> Tensor {
         self.unary_op(
             |a| a / (1.0 + (-a).exp()),
-            cuda_backend::fastdl_cuda_silu,
+            cuda_backend::fastnn_cuda_silu,
         )
     }
 
@@ -125,7 +125,7 @@ impl Tensor {
             TensorStorage::Cuda(buf) => {
                 let out = CudaBuffer::new(self.numel()).expect("alloc failed");
                 unsafe {
-                    cuda_backend::fastdl_cuda_leaky_relu(buf.as_ptr(), negative_slope, out.ptr(), self.numel());
+                    cuda_backend::fastnn_cuda_leaky_relu(buf.as_ptr(), negative_slope, out.ptr(), self.numel());
                 }
                 Tensor::from_cuda_buffer(out, self.shape.clone(), self.requires_grad)
             }
@@ -359,7 +359,7 @@ impl Tensor {
             }
             TensorStorage::Cuda(buf) => {
                 let out = CudaBuffer::new(1).unwrap();
-                unsafe { cuda_backend::fastdl_cuda_max(buf.as_ptr(), out.ptr(), self.numel()) };
+                unsafe { cuda_backend::fastnn_cuda_max(buf.as_ptr(), out.ptr(), self.numel()) };
                 Tensor::from_cuda_buffer(out, vec![1], false)
             }
         }
@@ -374,7 +374,7 @@ impl Tensor {
             }
             TensorStorage::Cuda(buf) => {
                 let out = CudaBuffer::new(1).unwrap();
-                unsafe { cuda_backend::fastdl_cuda_min(buf.as_ptr(), out.ptr(), self.numel()) };
+                unsafe { cuda_backend::fastnn_cuda_min(buf.as_ptr(), out.ptr(), self.numel()) };
                 Tensor::from_cuda_buffer(out, vec![1], false)
             }
         }

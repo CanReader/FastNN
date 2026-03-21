@@ -4,11 +4,11 @@
 //! Note: This example requires MNIST data files. In a real setup, you'd
 //! download and parse them. Here we generate synthetic data to demonstrate the API.
 
-use fastdl::prelude::*;
-use fastdl::data::dataset::TensorDataset;
+use fastnn::prelude::*;
+use fastnn::data::dataset::TensorDataset;
 
 fn main() {
-    println!("fastDL — MNIST CNN Classifier");
+    println!("FastNN — MNIST CNN Classifier");
     println!("==============================\n");
 
     manual_seed(42);

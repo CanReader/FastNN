@@ -32,7 +32,7 @@ static inline int div_ceil(int a, int b) { return (a + b - 1) / b; }
 // ============================================================================
 // Device Management
 // ============================================================================
-extern "C" int fastdl_cuda_init(int device_id) {
+extern "C" int fastnn_cuda_init(int device_id) {
     CUDA_CHECK(cudaSetDevice(device_id));
 
     if (g_cublas_handle == nullptr) {
@@ -48,50 +48,50 @@ extern "C" int fastdl_cuda_init(int device_id) {
     return 0;
 }
 
-extern "C" int fastdl_cuda_device_count() {
+extern "C" int fastnn_cuda_device_count() {
     int count = 0;
     cudaGetDeviceCount(&count);
     return count;
 }
 
-extern "C" int fastdl_cuda_synchronize() {
+extern "C" int fastnn_cuda_synchronize() {
     CUDA_CHECK(cudaDeviceSynchronize());
     return 0;
 }
 
-extern "C" void fastdl_cuda_get_memory_info(size_t* free_mem, size_t* total_mem) {
+extern "C" void fastnn_cuda_get_memory_info(size_t* free_mem, size_t* total_mem) {
     cudaMemGetInfo(free_mem, total_mem);
 }
 
 // ============================================================================
 // Memory Management
 // ============================================================================
-extern "C" int fastdl_cuda_malloc(float** ptr, size_t size) {
+extern "C" int fastnn_cuda_malloc(float** ptr, size_t size) {
     CUDA_CHECK(cudaMalloc(ptr, size));
     return 0;
 }
 
-extern "C" int fastdl_cuda_free(float* ptr) {
+extern "C" int fastnn_cuda_free(float* ptr) {
     CUDA_CHECK(cudaFree(ptr));
     return 0;
 }
 
-extern "C" int fastdl_cuda_memcpy_h2d(float* dst, const float* src, size_t size) {
+extern "C" int fastnn_cuda_memcpy_h2d(float* dst, const float* src, size_t size) {
     CUDA_CHECK(cudaMemcpy(dst, src, size, cudaMemcpyHostToDevice));
     return 0;
 }
 
-extern "C" int fastdl_cuda_memcpy_d2h(float* dst, const float* src, size_t size) {
+extern "C" int fastnn_cuda_memcpy_d2h(float* dst, const float* src, size_t size) {
     CUDA_CHECK(cudaMemcpy(dst, src, size, cudaMemcpyDeviceToHost));
     return 0;
 }
 
-extern "C" int fastdl_cuda_memcpy_d2d(float* dst, const float* src, size_t size) {
+extern "C" int fastnn_cuda_memcpy_d2d(float* dst, const float* src, size_t size) {
     CUDA_CHECK(cudaMemcpy(dst, src, size, cudaMemcpyDeviceToDevice));
     return 0;
 }
 
-extern "C" int fastdl_cuda_memset(float* ptr, int value, size_t size) {
+extern "C" int fastnn_cuda_memset(float* ptr, int value, size_t size) {
     CUDA_CHECK(cudaMemset(ptr, value, size));
     return 0;
 }
@@ -172,19 +172,19 @@ __global__ void kernel_clamp(const float* a, float min_val, float max_val, float
         return 0; \
     } while(0)
 
-extern "C" int fastdl_cuda_add(const float* a, const float* b, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_add, a, b, out, n); }
-extern "C" int fastdl_cuda_sub(const float* a, const float* b, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_sub, a, b, out, n); }
-extern "C" int fastdl_cuda_mul(const float* a, const float* b, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_mul, a, b, out, n); }
-extern "C" int fastdl_cuda_div(const float* a, const float* b, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_div, a, b, out, n); }
-extern "C" int fastdl_cuda_add_scalar(const float* a, float s, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_add_scalar, a, s, out, n); }
-extern "C" int fastdl_cuda_mul_scalar(const float* a, float s, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_mul_scalar, a, s, out, n); }
-extern "C" int fastdl_cuda_pow_scalar(const float* a, float s, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_pow_scalar, a, s, out, n); }
-extern "C" int fastdl_cuda_sqrt(const float* a, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_sqrt, a, out, n); }
-extern "C" int fastdl_cuda_abs(const float* a, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_abs, a, out, n); }
-extern "C" int fastdl_cuda_neg(const float* a, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_neg, a, out, n); }
-extern "C" int fastdl_cuda_exp(const float* a, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_exp, a, out, n); }
-extern "C" int fastdl_cuda_log(const float* a, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_log, a, out, n); }
-extern "C" int fastdl_cuda_clamp(const float* a, float min_v, float max_v, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_clamp, a, min_v, max_v, out, n); }
+extern "C" int fastnn_cuda_add(const float* a, const float* b, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_add, a, b, out, n); }
+extern "C" int fastnn_cuda_sub(const float* a, const float* b, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_sub, a, b, out, n); }
+extern "C" int fastnn_cuda_mul(const float* a, const float* b, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_mul, a, b, out, n); }
+extern "C" int fastnn_cuda_div(const float* a, const float* b, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_div, a, b, out, n); }
+extern "C" int fastnn_cuda_add_scalar(const float* a, float s, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_add_scalar, a, s, out, n); }
+extern "C" int fastnn_cuda_mul_scalar(const float* a, float s, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_mul_scalar, a, s, out, n); }
+extern "C" int fastnn_cuda_pow_scalar(const float* a, float s, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_pow_scalar, a, s, out, n); }
+extern "C" int fastnn_cuda_sqrt(const float* a, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_sqrt, a, out, n); }
+extern "C" int fastnn_cuda_abs(const float* a, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_abs, a, out, n); }
+extern "C" int fastnn_cuda_neg(const float* a, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_neg, a, out, n); }
+extern "C" int fastnn_cuda_exp(const float* a, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_exp, a, out, n); }
+extern "C" int fastnn_cuda_log(const float* a, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_log, a, out, n); }
+extern "C" int fastnn_cuda_clamp(const float* a, float min_v, float max_v, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_clamp, a, min_v, max_v, out, n); }
 
 // ============================================================================
 // Activation Kernels
@@ -270,18 +270,18 @@ __global__ void kernel_silu_backward(const float* grad_output, const float* inpu
     }
 }
 
-extern "C" int fastdl_cuda_relu(const float* in, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_relu, in, out, n); }
-extern "C" int fastdl_cuda_relu_backward(const float* go, const float* in, float* gi, size_t n) { LAUNCH_ELEMENTWISE(kernel_relu_backward, go, in, gi, n); }
-extern "C" int fastdl_cuda_leaky_relu(const float* in, float ns, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_leaky_relu, in, ns, out, n); }
-extern "C" int fastdl_cuda_leaky_relu_backward(const float* go, const float* in, float ns, float* gi, size_t n) { LAUNCH_ELEMENTWISE(kernel_leaky_relu_backward, go, in, ns, gi, n); }
-extern "C" int fastdl_cuda_sigmoid(const float* in, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_sigmoid, in, out, n); }
-extern "C" int fastdl_cuda_sigmoid_backward(const float* go, const float* out, float* gi, size_t n) { LAUNCH_ELEMENTWISE(kernel_sigmoid_backward, go, out, gi, n); }
-extern "C" int fastdl_cuda_tanh_forward(const float* in, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_tanh_forward, in, out, n); }
-extern "C" int fastdl_cuda_tanh_backward(const float* go, const float* out, float* gi, size_t n) { LAUNCH_ELEMENTWISE(kernel_tanh_backward, go, out, gi, n); }
-extern "C" int fastdl_cuda_gelu(const float* in, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_gelu, in, out, n); }
-extern "C" int fastdl_cuda_gelu_backward(const float* go, const float* in, float* gi, size_t n) { LAUNCH_ELEMENTWISE(kernel_gelu_backward, go, in, gi, n); }
-extern "C" int fastdl_cuda_silu(const float* in, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_silu, in, out, n); }
-extern "C" int fastdl_cuda_silu_backward(const float* go, const float* in, float* gi, size_t n) { LAUNCH_ELEMENTWISE(kernel_silu_backward, go, in, gi, n); }
+extern "C" int fastnn_cuda_relu(const float* in, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_relu, in, out, n); }
+extern "C" int fastnn_cuda_relu_backward(const float* go, const float* in, float* gi, size_t n) { LAUNCH_ELEMENTWISE(kernel_relu_backward, go, in, gi, n); }
+extern "C" int fastnn_cuda_leaky_relu(const float* in, float ns, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_leaky_relu, in, ns, out, n); }
+extern "C" int fastnn_cuda_leaky_relu_backward(const float* go, const float* in, float ns, float* gi, size_t n) { LAUNCH_ELEMENTWISE(kernel_leaky_relu_backward, go, in, ns, gi, n); }
+extern "C" int fastnn_cuda_sigmoid(const float* in, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_sigmoid, in, out, n); }
+extern "C" int fastnn_cuda_sigmoid_backward(const float* go, const float* out, float* gi, size_t n) { LAUNCH_ELEMENTWISE(kernel_sigmoid_backward, go, out, gi, n); }
+extern "C" int fastnn_cuda_tanh_forward(const float* in, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_tanh_forward, in, out, n); }
+extern "C" int fastnn_cuda_tanh_backward(const float* go, const float* out, float* gi, size_t n) { LAUNCH_ELEMENTWISE(kernel_tanh_backward, go, out, gi, n); }
+extern "C" int fastnn_cuda_gelu(const float* in, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_gelu, in, out, n); }
+extern "C" int fastnn_cuda_gelu_backward(const float* go, const float* in, float* gi, size_t n) { LAUNCH_ELEMENTWISE(kernel_gelu_backward, go, in, gi, n); }
+extern "C" int fastnn_cuda_silu(const float* in, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_silu, in, out, n); }
+extern "C" int fastnn_cuda_silu_backward(const float* go, const float* in, float* gi, size_t n) { LAUNCH_ELEMENTWISE(kernel_silu_backward, go, in, gi, n); }
 
 // ============================================================================
 // Softmax (numerically stable, shared memory)
@@ -404,21 +404,21 @@ __global__ void kernel_log_softmax(const float* input, float* output, int batch_
         out_row[i] = in_row[i] - max_val - log_sum;
 }
 
-extern "C" int fastdl_cuda_softmax(const float* input, float* output, int bs, int nc) {
+extern "C" int fastnn_cuda_softmax(const float* input, float* output, int bs, int nc) {
     int threads = min(nc, BLOCK_SIZE);
     kernel_softmax<<<bs, threads, threads * sizeof(float)>>>(input, output, bs, nc);
     CUDA_CHECK(cudaGetLastError());
     return 0;
 }
 
-extern "C" int fastdl_cuda_softmax_backward(const float* go, const float* out, float* gi, int bs, int nc) {
+extern "C" int fastnn_cuda_softmax_backward(const float* go, const float* out, float* gi, int bs, int nc) {
     int threads = min(nc, BLOCK_SIZE);
     kernel_softmax_backward<<<bs, threads, threads * sizeof(float)>>>(go, out, gi, bs, nc);
     CUDA_CHECK(cudaGetLastError());
     return 0;
 }
 
-extern "C" int fastdl_cuda_log_softmax(const float* input, float* output, int bs, int nc) {
+extern "C" int fastnn_cuda_log_softmax(const float* input, float* output, int bs, int nc) {
     int threads = min(nc, BLOCK_SIZE);
     kernel_log_softmax<<<bs, threads, threads * sizeof(float)>>>(input, output, bs, nc);
     CUDA_CHECK(cudaGetLastError());
@@ -428,7 +428,7 @@ extern "C" int fastdl_cuda_log_softmax(const float* input, float* output, int bs
 // ============================================================================
 // Matrix Operations (cuBLAS for GEMM)
 // ============================================================================
-extern "C" int fastdl_cuda_matmul(const float* a, const float* b, float* c,
+extern "C" int fastnn_cuda_matmul(const float* a, const float* b, float* c,
                                    int m, int n, int k,
                                    int lda, int ldb, int ldc,
                                    float alpha, float beta) {
@@ -444,7 +444,7 @@ extern "C" int fastdl_cuda_matmul(const float* a, const float* b, float* c,
     return 0;
 }
 
-extern "C" int fastdl_cuda_matmul_batched(const float* a, const float* b, float* c,
+extern "C" int fastnn_cuda_matmul_batched(const float* a, const float* b, float* c,
                                             int m, int n, int k, int batch_size,
                                             float alpha, float beta) {
     long long stride_a = (long long)m * k;
@@ -482,7 +482,7 @@ __global__ void kernel_transpose(const float* input, float* output, int rows, in
     }
 }
 
-extern "C" int fastdl_cuda_transpose(const float* input, float* output, int rows, int cols) {
+extern "C" int fastnn_cuda_transpose(const float* input, float* output, int rows, int cols) {
     dim3 threads(TILE_SIZE, TILE_SIZE);
     dim3 blocks(div_ceil(cols, TILE_SIZE), div_ceil(rows, TILE_SIZE));
     kernel_transpose<<<blocks, threads>>>(input, output, rows, cols);
@@ -511,7 +511,7 @@ __global__ void kernel_transpose_batched(const float* input, float* output, int 
         output[offset + y * rows + x] = tile[threadIdx.x][threadIdx.y];
 }
 
-extern "C" int fastdl_cuda_transpose_batched(const float* input, float* output, int batch_size, int rows, int cols) {
+extern "C" int fastnn_cuda_transpose_batched(const float* input, float* output, int batch_size, int rows, int cols) {
     dim3 threads(TILE_SIZE, TILE_SIZE);
     dim3 blocks(div_ceil(cols, TILE_SIZE), div_ceil(rows, TILE_SIZE), batch_size);
     kernel_transpose_batched<<<blocks, threads>>>(input, output, batch_size, rows, cols);
@@ -552,7 +552,7 @@ __global__ void kernel_sum(const float* input, float* output, size_t n) {
     if (tid == 0) atomicAdd(output, sdata[0]);
 }
 
-extern "C" int fastdl_cuda_sum(const float* input, float* output, size_t n) {
+extern "C" int fastnn_cuda_sum(const float* input, float* output, size_t n) {
     CUDA_CHECK(cudaMemset(output, 0, sizeof(float)));
     int blocks = div_ceil((int)n, BLOCK_SIZE * 2);
     kernel_sum<<<blocks, BLOCK_SIZE, BLOCK_SIZE * sizeof(float)>>>(input, output, n);
@@ -584,7 +584,7 @@ __global__ void kernel_sum_axis(const float* input, float* output, int* shape, i
     output[idx] = sum;
 }
 
-extern "C" int fastdl_cuda_sum_axis(const float* input, float* output, int* shape, int ndim, int axis, int total_elements) {
+extern "C" int fastnn_cuda_sum_axis(const float* input, float* output, int* shape, int ndim, int axis, int total_elements) {
     int axis_size = 1;
     // Read axis size from device memory would be complex, so we calculate output size
     int output_size = total_elements; // Will be divided by axis_size in kernel
@@ -606,8 +606,8 @@ extern "C" int fastdl_cuda_sum_axis(const float* input, float* output, int* shap
     return 0;
 }
 
-extern "C" int fastdl_cuda_mean(const float* input, float* output, size_t n) {
-    int ret = fastdl_cuda_sum(input, output, n);
+extern "C" int fastnn_cuda_mean(const float* input, float* output, size_t n) {
+    int ret = fastnn_cuda_sum(input, output, n);
     if (ret != 0) return ret;
     float inv_n = 1.0f / (float)n;
     kernel_mul_scalar<<<1, 1>>>(output, inv_n, output, 1);
@@ -639,7 +639,7 @@ __global__ void kernel_max(const float* input, float* output, size_t n) {
     }
 }
 
-extern "C" int fastdl_cuda_max(const float* input, float* output, size_t n) {
+extern "C" int fastnn_cuda_max(const float* input, float* output, size_t n) {
     float neg_inf = -FLT_MAX;
     CUDA_CHECK(cudaMemcpy(output, &neg_inf, sizeof(float), cudaMemcpyHostToDevice));
     int blocks = div_ceil((int)n, BLOCK_SIZE);
@@ -648,13 +648,13 @@ extern "C" int fastdl_cuda_max(const float* input, float* output, size_t n) {
     return 0;
 }
 
-extern "C" int fastdl_cuda_min(const float* input, float* output, size_t n) {
+extern "C" int fastnn_cuda_min(const float* input, float* output, size_t n) {
     // Negate, find max, negate result
     float* temp;
     CUDA_CHECK(cudaMalloc(&temp, n * sizeof(float)));
-    fastdl_cuda_neg(input, temp, n);
-    fastdl_cuda_max(temp, output, n);
-    fastdl_cuda_neg(output, output, 1);
+    fastnn_cuda_neg(input, temp, n);
+    fastnn_cuda_max(temp, output, n);
+    fastnn_cuda_neg(output, output, 1);
     cudaFree(temp);
     return 0;
 }
@@ -686,7 +686,7 @@ __global__ void kernel_argmax(const float* input, int* output, size_t n) {
     }
 }
 
-extern "C" int fastdl_cuda_argmax(const float* input, int* output, size_t n) {
+extern "C" int fastnn_cuda_argmax(const float* input, int* output, size_t n) {
     // Simple single-pass for now
     kernel_argmax<<<1, min((int)n, 1024), 1024 * (sizeof(float) + sizeof(int))>>>(input, output, n);
     CUDA_CHECK(cudaGetLastError());
@@ -713,7 +713,7 @@ __global__ void kernel_argmax_axis(const float* input, int* output, int outer, i
     output[idx] = max_idx;
 }
 
-extern "C" int fastdl_cuda_argmax_axis(const float* input, int* output, int outer, int axis_size, int inner) {
+extern "C" int fastnn_cuda_argmax_axis(const float* input, int* output, int outer, int axis_size, int inner) {
     int total = outer * inner;
     int blocks = div_ceil(total, BLOCK_SIZE);
     kernel_argmax_axis<<<blocks, BLOCK_SIZE>>>(input, output, outer, axis_size, inner);
@@ -784,7 +784,7 @@ __global__ void kernel_col2im(
     input[idx] = sum;
 }
 
-extern "C" int fastdl_cuda_conv2d_forward(
+extern "C" int fastnn_cuda_conv2d_forward(
     const float* input, const float* weight, const float* bias, float* output,
     int batch_size, int in_channels, int out_channels,
     int input_h, int input_w,
@@ -837,7 +837,7 @@ extern "C" int fastdl_cuda_conv2d_forward(
     return 0;
 }
 
-extern "C" int fastdl_cuda_conv2d_backward_data(
+extern "C" int fastnn_cuda_conv2d_backward_data(
     const float* grad_output, const float* weight, float* grad_input,
     int batch_size, int in_channels, int out_channels,
     int input_h, int input_w, int output_h, int output_w,
@@ -877,7 +877,7 @@ extern "C" int fastdl_cuda_conv2d_backward_data(
     return 0;
 }
 
-extern "C" int fastdl_cuda_conv2d_backward_weight(
+extern "C" int fastnn_cuda_conv2d_backward_weight(
     const float* input, const float* grad_output, float* grad_weight,
     int batch_size, int in_channels, int out_channels,
     int input_h, int input_w, int output_h, int output_w,
@@ -961,7 +961,7 @@ __global__ void kernel_max_pool2d(
     if (indices != nullptr) indices[idx] = max_idx;
 }
 
-extern "C" int fastdl_cuda_max_pool2d(
+extern "C" int fastnn_cuda_max_pool2d(
     const float* input, float* output, int* indices,
     int batch_size, int channels,
     int input_h, int input_w,
@@ -997,7 +997,7 @@ __global__ void kernel_max_pool2d_backward(
     atomicAdd(&grad_input[input_offset + indices[idx]], grad_output[idx]);
 }
 
-extern "C" int fastdl_cuda_max_pool2d_backward(
+extern "C" int fastnn_cuda_max_pool2d_backward(
     const float* grad_output, const int* indices, float* grad_input,
     int batch_size, int channels,
     int input_h, int input_w,
@@ -1047,7 +1047,7 @@ __global__ void kernel_avg_pool2d(
     output[idx] = sum / (float)count;
 }
 
-extern "C" int fastdl_cuda_avg_pool2d(
+extern "C" int fastnn_cuda_avg_pool2d(
     const float* input, float* output,
     int batch_size, int channels,
     int input_h, int input_w,
@@ -1098,7 +1098,7 @@ __global__ void kernel_adaptive_avg_pool2d(
     output[idx] = sum / (float)count;
 }
 
-extern "C" int fastdl_cuda_adaptive_avg_pool2d(
+extern "C" int fastnn_cuda_adaptive_avg_pool2d(
     const float* input, float* output,
     int batch_size, int channels,
     int input_h, int input_w,
@@ -1192,7 +1192,7 @@ __global__ void kernel_batch_norm_forward(
     }
 }
 
-extern "C" int fastdl_cuda_batch_norm_forward(
+extern "C" int fastnn_cuda_batch_norm_forward(
     const float* input, const float* gamma, const float* beta,
     float* running_mean, float* running_var,
     float* output, float* save_mean, float* save_inv_var,
@@ -1263,7 +1263,7 @@ __global__ void kernel_batch_norm_backward(
     }
 }
 
-extern "C" int fastdl_cuda_batch_norm_backward(
+extern "C" int fastnn_cuda_batch_norm_backward(
     const float* grad_output, const float* input,
     const float* gamma, const float* save_mean, const float* save_inv_var,
     float* grad_input, float* grad_gamma, float* grad_beta,
@@ -1332,7 +1332,7 @@ __global__ void kernel_layer_norm_forward(
     }
 }
 
-extern "C" int fastdl_cuda_layer_norm_forward(
+extern "C" int fastnn_cuda_layer_norm_forward(
     const float* input, const float* gamma, const float* beta,
     float* output, float* mean, float* inv_var,
     int batch_size, int normalized_size, float epsilon)
@@ -1393,7 +1393,7 @@ __global__ void kernel_layer_norm_backward(
     }
 }
 
-extern "C" int fastdl_cuda_layer_norm_backward(
+extern "C" int fastnn_cuda_layer_norm_backward(
     const float* grad_output, const float* input,
     const float* gamma, const float* mean, const float* inv_var,
     float* grad_input, float* grad_gamma, float* grad_beta,
@@ -1439,7 +1439,7 @@ __global__ void kernel_rms_norm_forward(
         out_row[i] = gamma[i] * in_row[i] * rms;
 }
 
-extern "C" int fastdl_cuda_rms_norm_forward(
+extern "C" int fastnn_cuda_rms_norm_forward(
     const float* input, const float* gamma,
     float* output, float* rms,
     int batch_size, int normalized_size, float epsilon)
@@ -1476,14 +1476,14 @@ __global__ void kernel_dropout_backward(const float* grad_output, const float* m
     grad_input[idx] = grad_output[idx] * mask[idx] * scale;
 }
 
-extern "C" int fastdl_cuda_dropout_forward(const float* input, float* output, float* mask, float p, size_t n, unsigned long long seed) {
+extern "C" int fastnn_cuda_dropout_forward(const float* input, float* output, float* mask, float p, size_t n, unsigned long long seed) {
     int blocks = div_ceil((int)n, BLOCK_SIZE);
     kernel_dropout_forward<<<blocks, BLOCK_SIZE>>>(input, output, mask, p, n, seed);
     CUDA_CHECK(cudaGetLastError());
     return 0;
 }
 
-extern "C" int fastdl_cuda_dropout_backward(const float* grad_output, const float* mask, float* grad_input, float p, size_t n) {
+extern "C" int fastnn_cuda_dropout_backward(const float* grad_output, const float* mask, float* grad_input, float p, size_t n) {
     LAUNCH_ELEMENTWISE(kernel_dropout_backward, grad_output, mask, grad_input, p, n);
 }
 
@@ -1511,7 +1511,7 @@ __global__ void kernel_embedding_backward(const int* indices, const float* grad_
     atomicAdd(&grad_weight[vocab_idx * embedding_dim + dim_idx], grad_output[idx]);
 }
 
-extern "C" int fastdl_cuda_embedding_forward(const int* indices, const float* weight, float* output, int num_indices, int embedding_dim) {
+extern "C" int fastnn_cuda_embedding_forward(const int* indices, const float* weight, float* output, int num_indices, int embedding_dim) {
     int total = num_indices * embedding_dim;
     int blocks = div_ceil(total, BLOCK_SIZE);
     kernel_embedding_forward<<<blocks, BLOCK_SIZE>>>(indices, weight, output, num_indices, embedding_dim);
@@ -1519,7 +1519,7 @@ extern "C" int fastdl_cuda_embedding_forward(const int* indices, const float* we
     return 0;
 }
 
-extern "C" int fastdl_cuda_embedding_backward(const int* indices, const float* grad_output, float* grad_weight,
+extern "C" int fastnn_cuda_embedding_backward(const int* indices, const float* grad_output, float* grad_weight,
                                                 int num_indices, int embedding_dim, int num_embeddings) {
     CUDA_CHECK(cudaMemset(grad_weight, 0, num_embeddings * embedding_dim * sizeof(float)));
     int total = num_indices * embedding_dim;
@@ -1548,7 +1548,7 @@ __global__ void kernel_cross_entropy_loss(const float* log_probs, const int* tar
     }
 }
 
-extern "C" int fastdl_cuda_cross_entropy_loss(const float* log_probs, const int* targets, float* loss, float* grad,
+extern "C" int fastnn_cuda_cross_entropy_loss(const float* log_probs, const int* targets, float* loss, float* grad,
                                                 int batch_size, int num_classes) {
     CUDA_CHECK(cudaMemset(loss, 0, sizeof(float)));
     int blocks = div_ceil(batch_size, BLOCK_SIZE);
@@ -1566,7 +1566,7 @@ __global__ void kernel_mse_loss(const float* predictions, const float* targets, 
     grad[idx] = 2.0f * diff / (float)n;
 }
 
-extern "C" int fastdl_cuda_mse_loss(const float* predictions, const float* targets, float* loss, float* grad, size_t n) {
+extern "C" int fastnn_cuda_mse_loss(const float* predictions, const float* targets, float* loss, float* grad, size_t n) {
     CUDA_CHECK(cudaMemset(loss, 0, sizeof(float)));
     int blocks = div_ceil((int)n, BLOCK_SIZE);
     kernel_mse_loss<<<blocks, BLOCK_SIZE>>>(predictions, targets, loss, grad, n);
@@ -1584,7 +1584,7 @@ __global__ void kernel_bce_loss(const float* predictions, const float* targets, 
     grad[idx] = (-t / p + (1.0f - t) / (1.0f - p)) / (float)n;
 }
 
-extern "C" int fastdl_cuda_binary_cross_entropy(const float* predictions, const float* targets, float* loss, float* grad, size_t n) {
+extern "C" int fastnn_cuda_binary_cross_entropy(const float* predictions, const float* targets, float* loss, float* grad, size_t n) {
     CUDA_CHECK(cudaMemset(loss, 0, sizeof(float)));
     int blocks = div_ceil((int)n, BLOCK_SIZE);
     kernel_bce_loss<<<blocks, BLOCK_SIZE>>>(predictions, targets, loss, grad, n);
@@ -1595,7 +1595,7 @@ extern "C" int fastdl_cuda_binary_cross_entropy(const float* predictions, const 
 // ============================================================================
 // Scaled Dot-Product Attention
 // ============================================================================
-extern "C" int fastdl_cuda_scaled_dot_product_attention(
+extern "C" int fastnn_cuda_scaled_dot_product_attention(
     const float* query, const float* key, const float* value,
     float* output, float* attn_weights,
     const float* mask,
@@ -1611,7 +1611,7 @@ extern "C" int fastdl_cuda_scaled_dot_product_attention(
     // We need to transpose K: [bh, seq_len_k, head_dim] -> [bh, head_dim, seq_len_k]
     float* key_t;
     CUDA_CHECK(cudaMalloc(&key_t, (size_t)bh * head_dim * seq_len_k * sizeof(float)));
-    fastdl_cuda_transpose_batched(key, key_t, bh, seq_len_k, head_dim);
+    fastnn_cuda_transpose_batched(key, key_t, bh, seq_len_k, head_dim);
 
     // Batched matmul: scores = Q * K^T * scale
     CUBLAS_CHECK(cublasSgemmStridedBatched(g_cublas_handle,
@@ -1647,7 +1647,7 @@ extern "C" int fastdl_cuda_scaled_dot_product_attention(
         // Apply softmax per row (seq_len_q rows, each of length seq_len_k)
     }
     // Use our existing softmax
-    fastdl_cuda_softmax(attn_weights, attn_weights, bh * seq_len_q, seq_len_k);
+    fastnn_cuda_softmax(attn_weights, attn_weights, bh * seq_len_q, seq_len_k);
 
     // Output = attn_weights * V
     alpha = 1.0f;
@@ -1689,7 +1689,7 @@ __global__ void kernel_sgd_step(float* params, const float* grads, float* veloci
     params[idx] -= lr * g;
 }
 
-extern "C" int fastdl_cuda_sgd_step(float* params, const float* grads, float* velocity,
+extern "C" int fastnn_cuda_sgd_step(float* params, const float* grads, float* velocity,
                                       float lr, float momentum, float weight_decay, float dampening,
                                       int nesterov, size_t n) {
     int blocks = div_ceil((int)n, BLOCK_SIZE);
@@ -1729,7 +1729,7 @@ __global__ void kernel_adam_step(float* params, const float* grads,
     params[idx] -= lr * m_hat / (sqrtf(v_hat) + epsilon);
 }
 
-extern "C" int fastdl_cuda_adam_step(float* params, const float* grads,
+extern "C" int fastnn_cuda_adam_step(float* params, const float* grads,
                                       float* m, float* v,
                                       float lr, float beta1, float beta2, float epsilon,
                                       float weight_decay, int step, int amsgrad, float* v_max,
@@ -1748,11 +1748,11 @@ __global__ void kernel_fill(float* data, float value, size_t n) {
     if (idx < n) data[idx] = value;
 }
 
-extern "C" int fastdl_cuda_fill(float* data, float value, size_t n) {
+extern "C" int fastnn_cuda_fill(float* data, float value, size_t n) {
     LAUNCH_ELEMENTWISE(kernel_fill, data, value, n);
 }
 
-extern "C" int fastdl_cuda_copy(const float* src, float* dst, size_t n) {
+extern "C" int fastnn_cuda_copy(const float* src, float* dst, size_t n) {
     CUDA_CHECK(cudaMemcpy(dst, src, n * sizeof(float), cudaMemcpyDeviceToDevice));
     return 0;
 }
@@ -1762,7 +1762,7 @@ __global__ void kernel_arange(float* output, float start, float step, size_t n) 
     if (idx < n) output[idx] = start + (float)idx * step;
 }
 
-extern "C" int fastdl_cuda_arange(float* output, float start, float step, size_t n) {
+extern "C" int fastnn_cuda_arange(float* output, float start, float step, size_t n) {
     int blocks = div_ceil((int)n, BLOCK_SIZE);
     kernel_arange<<<blocks, BLOCK_SIZE>>>(output, start, step, n);
     CUDA_CHECK(cudaGetLastError());
@@ -1774,7 +1774,7 @@ __global__ void kernel_where(const float* condition, const float* x, const float
     if (idx < n) output[idx] = condition[idx] != 0.0f ? x[idx] : y[idx];
 }
 
-extern "C" int fastdl_cuda_where(const float* condition, const float* x, const float* y, float* output, size_t n) {
+extern "C" int fastnn_cuda_where(const float* condition, const float* x, const float* y, float* output, size_t n) {
     LAUNCH_ELEMENTWISE(kernel_where, condition, x, y, output, n);
 }
 
@@ -1793,7 +1793,7 @@ __global__ void kernel_gather(const float* input, const int* indices, float* out
     output[idx] = input[input_idx];
 }
 
-extern "C" int fastdl_cuda_gather(const float* input, const int* indices, float* output,
+extern "C" int fastnn_cuda_gather(const float* input, const int* indices, float* output,
                                     int outer_size, int gather_dim_size, int inner_size, int num_indices) {
     int total = outer_size * num_indices * inner_size;
     int blocks = div_ceil(total, BLOCK_SIZE);

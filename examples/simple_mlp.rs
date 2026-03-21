@@ -2,10 +2,10 @@
 //!
 //! Demonstrates building and training a small neural network.
 
-use fastdl::prelude::*;
+use fastnn::prelude::*;
 
 fn main() {
-    println!("fastDL — Simple MLP (XOR Problem)");
+    println!("FastNN — Simple MLP (XOR Problem)");
     println!("==================================\n");
 
     manual_seed(42);

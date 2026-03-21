@@ -1,5 +1,5 @@
 [package]
-name = "fastdl"
+name = "fastnn"
 version = "0.1.0"
 edition = "2021"
 description = "A GPU-accelerated deep learning library built from scratch with Rust and CUDA"
@@ -9,7 +9,7 @@ keywords = ["deep-learning", "neural-network", "cuda", "gpu", "machine-learning"
 categories = ["science", "mathematics"]
 
 [lib]
-name = "fastdl"
+name = "fastnn"
 path = "src/lib.rs"
 
 [dependencies]

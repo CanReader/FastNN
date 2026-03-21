@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use fastdl::tensor::Tensor;
+use fastnn::tensor::Tensor;
 
 fn bench_matmul(c: &mut Criterion) {
     let a = Tensor::randn(&[128, 256]);

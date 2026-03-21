@@ -43,7 +43,7 @@ fn build_cuda() {
         .include("cuda/include")
         .include(&cuda_include)
         .file("cuda/kernels.cu")
-        .compile("fastdl_cuda_kernels");
+        .compile("fastnn_cuda_kernels");
 
     // Link CUDA runtime and libraries
     println!("cargo:rustc-link-search=native={}", cuda_lib.display());
