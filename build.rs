@@ -32,13 +32,13 @@ fn build_cuda() {
     cc::Build::new()
         .cuda(true)
         .cudart("shared")
-        .flag("-gencode=arch=compute_70,code=sm_70") // Volta
         .flag("-gencode=arch=compute_75,code=sm_75") // Turing
         .flag("-gencode=arch=compute_80,code=sm_80") // Ampere
         .flag("-gencode=arch=compute_86,code=sm_86") // Ampere (RTX 30xx)
         .flag("-gencode=arch=compute_89,code=sm_89") // Ada Lovelace
         .flag("-gencode=arch=compute_90,code=sm_90") // Hopper
         .flag("--use_fast_math")
+        .flag("--extended-lambda")
         .flag("-O3")
         .include("cuda/include")
         .include(&cuda_include)
