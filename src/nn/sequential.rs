@@ -43,6 +43,10 @@ impl Module for Sequential {
         self.layers.iter().flat_map(|l| l.parameters()).collect()
     }
 
+    fn parameters_mut(&mut self) -> Vec<&mut Tensor> {
+        self.layers.iter_mut().flat_map(|l| l.parameters_mut()).collect()
+    }
+
     fn train(&mut self) {
         for layer in &mut self.layers {
             layer.train();

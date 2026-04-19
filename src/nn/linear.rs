@@ -95,6 +95,14 @@ impl Module for Linear {
         params
     }
 
+    fn parameters_mut(&mut self) -> Vec<&mut Tensor> {
+        let mut params = vec![&mut self.weight];
+        if let Some(ref mut bias) = self.bias {
+            params.push(bias);
+        }
+        params
+    }
+
     fn named_parameters(&self) -> HashMap<String, Tensor> {
         let mut params = HashMap::new();
         params.insert("weight".to_string(), self.weight.clone());

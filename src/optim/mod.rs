@@ -9,13 +9,18 @@ pub use scheduler::{LRScheduler, StepLR, CosineAnnealingLR, LinearWarmup, OneCyc
 use crate::tensor::Tensor;
 
 /// Trait for all optimizers.
+///
+/// Optimizers read `.grad()` from each parameter (populated by `loss.backward()`)
+/// and update the parameter's data in place via `apply_sgd_update` or
+/// `set_data_from_vec`. Pass `model.parameters_mut()` as `params`.
 pub trait Optimizer {
-    /// Perform a single optimization step.
-    fn step(&mut self, params: &mut [Tensor], grads: &[Tensor]);
+    /// Perform a single optimization step. Reads `param.grad()` for each param
+    /// and applies the update in place.
+    fn step(&mut self, params: &mut [&mut Tensor]);
 
-    /// Zero all accumulated gradients.
-    fn zero_grad(&self, params: &[Tensor]) {
-        for p in params {
+    /// Zero all parameter gradients (clears `.grad()` for each).
+    fn zero_grad(&self, params: &mut [&mut Tensor]) {
+        for p in params.iter() {
             p.zero_grad();
         }
     }

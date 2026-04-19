@@ -1,8 +1,9 @@
-//! Simple MLP example — XOR problem
+//! Simple MLP example — XOR problem.
 //!
-//! Demonstrates building and training a small neural network.
+//! Demonstrates the full training loop: autograd, backward, optimizer step.
 
 use fastnn::prelude::*;
+use fastnn::autograd::graph;
 
 fn main() {
     println!("FastNN — Simple MLP (XOR Problem)");
@@ -10,14 +11,14 @@ fn main() {
 
     manual_seed(42);
 
-    // XOR dataset
+    // XOR dataset: 4 rows of (input, target).
     let inputs = Tensor::from_vec(
         vec![0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0],
         &[4, 2],
     );
     let targets = Tensor::from_vec(vec![0.0, 1.0, 1.0, 0.0], &[4, 1]);
 
-    // Build model
+    // Build model.
     let mut model = Sequential::new()
         .add(Linear::new(2, 16))
         .add(ReLU)
@@ -29,51 +30,53 @@ fn main() {
     println!("Model parameters: {}", model.num_parameters());
 
     let loss_fn = MSELoss::new();
-    let mut optimizer = SGD::new(1.0).momentum(0.9);
+    let mut optimizer = SGD::new(0.5).momentum(0.9);
+    let epochs = 2000;
 
-    // Training loop
-    let mut params = model.parameters();
-    for epoch in 0..1000 {
-        let output = model.forward(&inputs);
-        let (loss, grad) = loss_fn.forward_with_grad(&output, &targets);
+    for epoch in 0..epochs {
+        // Enable gradient tracking for this forward pass.
+        graph::enable_grad();
 
-        // Simple numerical gradient approximation for this demo
-        let eps = 1e-4;
-        let mut grads = Vec::new();
-        for p in &params {
-            let mut param_grad = vec![0.0f32; p.numel()];
-            let p_data = p.to_vec();
-            for i in 0..p.numel() {
-                // f(x + eps)
-                let mut p_plus = p_data.clone();
-                p_plus[i] += eps;
-                let t_plus = Tensor::from_vec(p_plus, p.shape());
-                // We can't easily do forward with modified params in Sequential,
-                // so we use a simple gradient approximation
-                param_grad[i] = 0.0; // Placeholder
-            }
-            grads.push(Tensor::from_vec(param_grad, p.shape()));
+        // Clear any leftover grads from prior iteration.
+        {
+            let mut params = model.parameters_mut();
+            optimizer.zero_grad(&mut params);
         }
 
-        // For demonstration, use the output gradient to manually backprop
-        // In practice, use the autograd Variable system
-        if epoch % 100 == 0 {
+        // Forward.
+        let output = model.forward(&inputs);
+        let loss = loss_fn.forward(&output, &targets);
+
+        // Backward — populates .grad() on every leaf tensor with requires_grad.
+        loss.backward();
+
+        // Optimizer step — reads .grad() and mutates params in place.
+        {
+            let mut params = model.parameters_mut();
+            optimizer.step(&mut params);
+        }
+
+        // Disable grad tracking outside the training step.
+        graph::disable_grad();
+
+        if epoch % 100 == 0 || epoch == epochs - 1 {
             println!("Epoch {:4} | Loss: {:.6}", epoch, loss.item());
         }
     }
 
-    // Final predictions
+    // Final predictions (inference — grads disabled).
     let output = model.forward(&inputs);
     println!("\nFinal predictions:");
-    let predictions = output.to_vec();
+    let preds = output.to_vec();
+    let input_data = inputs.to_vec();
     let target_data = targets.to_vec();
     for i in 0..4 {
-        let input = inputs.to_vec();
         println!(
-            "  [{:.0}, {:.0}] -> {:.4} (target: {:.0})",
-            input[i * 2], input[i * 2 + 1],
-            predictions[i],
-            target_data[i]
+            "  [{:.0}, {:.0}] -> {:.4} (target: {:.0}, rounded: {})",
+            input_data[i * 2], input_data[i * 2 + 1],
+            preds[i],
+            target_data[i],
+            if preds[i] > 0.5 { 1 } else { 0 },
         );
     }
 }

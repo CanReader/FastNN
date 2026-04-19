@@ -228,6 +228,60 @@ impl Tensor {
         *self.grad.lock().unwrap() = None;
     }
 
+    /// Clone of the grad `Arc<Mutex<...>>` cell. Used by the autograd graph to
+    /// write accumulated gradients back into leaf tensors after `backward()`.
+    pub(crate) fn grad_cell(&self) -> Arc<Mutex<Option<Box<Tensor>>>> {
+        self.grad.clone()
+    }
+
+    /// Run reverse-mode autodiff from this scalar tensor. Populates `.grad()` on
+    /// every leaf tensor in the graph that had `requires_grad = true`.
+    ///
+    /// The tensor must be a scalar (numel == 1), typically the output of a loss.
+    /// After backward, the graph tape is cleared — call `enable_grad()` again
+    /// before the next forward pass you want tracked.
+    pub fn backward(&self) {
+        assert_eq!(self.numel(), 1,
+                   "backward() requires a scalar tensor (numel=1), got shape {:?}", self.shape);
+        crate::autograd::graph::backward(self.id);
+    }
+
+    /// In-place SGD-style update: `self -= lr * grad`. Used by optimizers to
+    /// mutate weights while preserving the `grad` Arc and `id` so future
+    /// backward passes still reference the same leaf.
+    pub fn apply_sgd_update(&mut self, lr: f32, update: &Tensor) {
+        assert_eq!(self.shape, update.shape,
+                   "apply_sgd_update shape mismatch: {:?} vs {:?}", self.shape, update.shape);
+        match (&mut self.storage, &update.storage) {
+            (TensorStorage::Cpu(data), TensorStorage::Cpu(u)) => {
+                for (p, g) in data.iter_mut().zip(u.iter()) {
+                    *p -= lr * g;
+                }
+            }
+            (TensorStorage::Cuda(_), _) | (_, TensorStorage::Cuda(_)) => {
+                let p = self.to_vec();
+                let u = update.to_vec();
+                let new_data: Vec<f32> = p.iter().zip(u.iter()).map(|(&pv, &gv)| pv - lr * gv).collect();
+                let buf = CudaBuffer::from_slice(&new_data).expect("upload failed");
+                self.storage = TensorStorage::Cuda(Arc::new(buf));
+            }
+        }
+    }
+
+    /// In-place data replacement, preserving `id` and `grad` Arc.
+    /// Used by optimizers (Adam/AdamW) that compute a fresh parameter vector.
+    pub fn set_data_from_vec(&mut self, data: Vec<f32>) {
+        assert_eq!(data.len(), self.numel(),
+                   "set_data_from_vec length mismatch: {} vs {}", data.len(), self.numel());
+        match &mut self.storage {
+            TensorStorage::Cpu(cpu) => { *cpu = data; }
+            TensorStorage::Cuda(_) => {
+                let buf = CudaBuffer::from_slice(&data).expect("upload failed");
+                self.storage = TensorStorage::Cuda(Arc::new(buf));
+            }
+        }
+    }
+
     // ========================================================================
     // Data Access
     // ========================================================================
@@ -377,7 +431,7 @@ impl Tensor {
         };
 
         let strides = compute_strides(&final_shape);
-        Tensor {
+        let mut out = Tensor {
             storage: self.storage.clone(),
             shape: final_shape,
             strides,
@@ -385,7 +439,23 @@ impl Tensor {
             requires_grad: self.requires_grad,
             grad: Arc::new(Mutex::new(None)),
             id: next_tensor_id(),
+        };
+
+        if crate::autograd::graph::is_grad_enabled() && self.requires_grad {
+            out.requires_grad = true;
+            let grad_fn = std::sync::Arc::new(
+                crate::autograd::backward_ops::ReshapeBackward {
+                    input_ids: vec![self.id],
+                    input_shape: self.shape.clone(),
+                }
+            );
+            crate::autograd::graph::record_op_with_cells(
+                grad_fn, out.id,
+                vec![(self.id, self.grad.clone())],
+            );
         }
+
+        out
     }
 
     /// Flatten to 1D.
@@ -494,7 +564,21 @@ impl Tensor {
         }
 
         let mut result = Tensor::from_vec(new_data, shape);
-        result.requires_grad = self.requires_grad;
+
+        if crate::autograd::graph::is_grad_enabled() && self.requires_grad {
+            result.requires_grad = true;
+            let grad_fn = std::sync::Arc::new(
+                crate::autograd::backward_ops::ExpandBackward {
+                    input_ids: vec![self.id],
+                    input_shape: self.shape.clone(),
+                }
+            );
+            crate::autograd::graph::record_op_with_cells(
+                grad_fn, result.id,
+                vec![(self.id, self.grad.clone())],
+            );
+        }
+
         result
     }
 

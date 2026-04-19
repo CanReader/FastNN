@@ -3,19 +3,34 @@ use std::collections::HashMap;
 
 /// The base trait for all neural network modules.
 ///
-/// Every layer, model, or component implements this trait, providing
-/// a unified interface for forward passes, parameter access, and
-/// train/eval mode switching.
+/// Every layer, model, or component implements this trait. `forward` is the only
+/// required method; the rest have sensible defaults.
+///
+/// ## Parameters and gradients
+///
+/// - `parameters()` returns **clones** of each learnable tensor. These clones share
+///   the same `grad` Arc as the original (Rust's `Arc<Mutex<...>>` interior
+///   mutability) but **not** the same CPU storage, so they are useful for reading
+///   gradients and inspecting shapes but NOT for applying weight updates.
+/// - `parameters_mut()` returns `&mut Tensor` references directly into the layer,
+///   which is what optimizers use to mutate weights in place.
 pub trait Module: Send + Sync {
     /// Forward pass — transforms input tensor(s) to output.
     fn forward(&self, input: &Tensor) -> Tensor;
 
-    /// Return all learnable parameters.
+    /// Return clones of all learnable parameters. Grad Arcs are shared with the
+    /// originals, so reading `.grad()` on a clone sees the same accumulated grad.
     fn parameters(&self) -> Vec<Tensor> {
         Vec::new()
     }
 
-    /// Return named parameters (name -> tensor).
+    /// Return mutable references to all learnable parameters. Optimizers use this
+    /// to update weights in place.
+    fn parameters_mut(&mut self) -> Vec<&mut Tensor> {
+        Vec::new()
+    }
+
+    /// Return named parameters (name -> tensor clone).
     fn named_parameters(&self) -> HashMap<String, Tensor> {
         HashMap::new()
     }

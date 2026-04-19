@@ -1,8 +1,34 @@
 //! Tensor operations — dispatches to CPU or CUDA backend based on device.
+//!
+//! Every op that takes `requires_grad` inputs records a backward node in the
+//! active autograd tape (via `autograd::graph::record_op_with_cells`) so that
+//! calling `.backward()` on a downstream scalar loss propagates gradients to
+//! leaf tensors (model parameters).
+
+use std::sync::Arc;
 
 use crate::tensor::tensor::{Tensor, TensorStorage, compute_strides};
 use crate::tensor::cuda_backend;
 use crate::cuda::CudaBuffer;
+use crate::autograd::graph::{self, GradFn, GradCell};
+use crate::autograd::backward_ops::*;
+
+/// Collect `(id, grad_cell)` for every input that `requires_grad`.
+fn collect_cells(inputs: &[&Tensor]) -> Vec<(u64, GradCell)> {
+    inputs.iter().filter(|t| t.requires_grad())
+        .map(|t| (t.id(), t.grad_cell()))
+        .collect()
+}
+
+/// If any input `requires_grad` and the autograd tape is active, mark the output
+/// `requires_grad=true` and append a backward node.
+fn record(out: &mut Tensor, inputs: &[&Tensor], grad_fn: Arc<dyn GradFn>) {
+    if !graph::is_grad_enabled() { return; }
+    if !inputs.iter().any(|t| t.requires_grad()) { return; }
+    out.requires_grad = true;
+    let cells = collect_cells(inputs);
+    graph::record_op_with_cells(grad_fn, out.id(), cells);
+}
 
 // ============================================================================
 // Element-wise arithmetic
@@ -11,36 +37,70 @@ use crate::cuda::CudaBuffer;
 impl Tensor {
     /// Element-wise addition.
     pub fn add(&self, other: &Tensor) -> Tensor {
-        self.binary_op(other, |a, b| a + b, cuda_backend::fastnn_cuda_add)
+        let mut out = self.binary_op(other, |a, b| a + b, cuda_backend::fastnn_cuda_add);
+        record(&mut out, &[self, other], Arc::new(AddBackward {
+            input_ids: vec![self.id(), other.id()],
+            a_shape: self.shape().to_vec(),
+            b_shape: other.shape().to_vec(),
+        }));
+        out
     }
 
     /// Element-wise subtraction.
     pub fn sub(&self, other: &Tensor) -> Tensor {
-        self.binary_op(other, |a, b| a - b, cuda_backend::fastnn_cuda_sub)
+        let mut out = self.binary_op(other, |a, b| a - b, cuda_backend::fastnn_cuda_sub);
+        record(&mut out, &[self, other], Arc::new(SubBackward {
+            input_ids: vec![self.id(), other.id()],
+            a_shape: self.shape().to_vec(),
+            b_shape: other.shape().to_vec(),
+        }));
+        out
     }
 
     /// Element-wise multiplication (Hadamard product).
     pub fn mul(&self, other: &Tensor) -> Tensor {
-        self.binary_op(other, |a, b| a * b, cuda_backend::fastnn_cuda_mul)
+        let mut out = self.binary_op(other, |a, b| a * b, cuda_backend::fastnn_cuda_mul);
+        record(&mut out, &[self, other], Arc::new(MulBackward {
+            input_ids: vec![self.id(), other.id()],
+            a: self.clone(),
+            b: other.clone(),
+        }));
+        out
     }
 
     /// Element-wise division.
     pub fn div(&self, other: &Tensor) -> Tensor {
-        self.binary_op(other, |a, b| a / b, cuda_backend::fastnn_cuda_div)
+        let mut out = self.binary_op(other, |a, b| a / b, cuda_backend::fastnn_cuda_div);
+        record(&mut out, &[self, other], Arc::new(DivBackward {
+            input_ids: vec![self.id(), other.id()],
+            a: self.clone(),
+            b: other.clone(),
+        }));
+        out
     }
 
     /// Add scalar to all elements.
     pub fn add_scalar(&self, scalar: f32) -> Tensor {
-        self.scalar_op(scalar, |a, s| a + s, cuda_backend::fastnn_cuda_add_scalar)
+        let mut out = self.scalar_op(scalar, |a, s| a + s, cuda_backend::fastnn_cuda_add_scalar);
+        record(&mut out, &[self], Arc::new(AddScalarBackward {
+            input_ids: vec![self.id()],
+        }));
+        out
     }
 
     /// Multiply all elements by scalar.
     pub fn mul_scalar(&self, scalar: f32) -> Tensor {
-        self.scalar_op(scalar, |a, s| a * s, cuda_backend::fastnn_cuda_mul_scalar)
+        let mut out = self.scalar_op(scalar, |a, s| a * s, cuda_backend::fastnn_cuda_mul_scalar);
+        record(&mut out, &[self], Arc::new(MulScalarBackward {
+            input_ids: vec![self.id()],
+            scalar,
+        }));
+        out
     }
 
     /// Raise all elements to a power.
     pub fn pow_scalar(&self, scalar: f32) -> Tensor {
+        // No backward wired yet — pow gradient not implemented in Phase 1.
         self.scalar_op(scalar, |a, s| a.powf(s), cuda_backend::fastnn_cuda_pow_scalar)
     }
 
@@ -56,17 +116,32 @@ impl Tensor {
 
     /// Element-wise negation.
     pub fn neg(&self) -> Tensor {
-        self.unary_op(|a| -a, cuda_backend::fastnn_cuda_neg)
+        let mut out = self.unary_op(|a| -a, cuda_backend::fastnn_cuda_neg);
+        record(&mut out, &[self], Arc::new(NegBackward {
+            input_ids: vec![self.id()],
+        }));
+        out
     }
 
     /// Element-wise exponential.
     pub fn exp(&self) -> Tensor {
-        self.unary_op(|a| a.exp(), cuda_backend::fastnn_cuda_exp)
+        let out_inner = self.unary_op(|a| a.exp(), cuda_backend::fastnn_cuda_exp);
+        let mut out = out_inner.clone();
+        record(&mut out, &[self], Arc::new(ExpBackward {
+            input_ids: vec![self.id()],
+            output: out_inner,
+        }));
+        out
     }
 
     /// Element-wise natural log.
     pub fn log(&self) -> Tensor {
-        self.unary_op(|a| a.ln(), cuda_backend::fastnn_cuda_log)
+        let mut out = self.unary_op(|a| a.ln(), cuda_backend::fastnn_cuda_log);
+        record(&mut out, &[self], Arc::new(LogBackward {
+            input_ids: vec![self.id()],
+            input: self.clone(),
+        }));
+        out
     }
 
     /// Clamp all elements to [min_val, max_val].
@@ -91,29 +166,56 @@ impl Tensor {
     // ========================================================================
 
     pub fn relu(&self) -> Tensor {
-        self.unary_op(|a| a.max(0.0), cuda_backend::fastnn_cuda_relu)
+        let mut out = self.unary_op(|a| a.max(0.0), cuda_backend::fastnn_cuda_relu);
+        record(&mut out, &[self], Arc::new(ReluBackward {
+            input_ids: vec![self.id()],
+            input: self.clone(),
+        }));
+        out
     }
 
     pub fn sigmoid(&self) -> Tensor {
-        self.unary_op(|a| 1.0 / (1.0 + (-a).exp()), cuda_backend::fastnn_cuda_sigmoid)
+        let out_inner = self.unary_op(|a| 1.0 / (1.0 + (-a).exp()), cuda_backend::fastnn_cuda_sigmoid);
+        let mut out = out_inner.clone();
+        record(&mut out, &[self], Arc::new(SigmoidBackward {
+            input_ids: vec![self.id()],
+            output: out_inner,
+        }));
+        out
     }
 
     pub fn tanh_act(&self) -> Tensor {
-        self.unary_op(|a| a.tanh(), cuda_backend::fastnn_cuda_tanh_forward)
+        let out_inner = self.unary_op(|a| a.tanh(), cuda_backend::fastnn_cuda_tanh_forward);
+        let mut out = out_inner.clone();
+        record(&mut out, &[self], Arc::new(TanhBackward {
+            input_ids: vec![self.id()],
+            output: out_inner,
+        }));
+        out
     }
 
     pub fn gelu(&self) -> Tensor {
-        self.unary_op(
+        let mut out = self.unary_op(
             |a| 0.5 * a * (1.0 + libm::erff(a * std::f32::consts::FRAC_1_SQRT_2)),
             cuda_backend::fastnn_cuda_gelu,
-        )
+        );
+        record(&mut out, &[self], Arc::new(GeluBackward {
+            input_ids: vec![self.id()],
+            input: self.clone(),
+        }));
+        out
     }
 
     pub fn silu(&self) -> Tensor {
-        self.unary_op(
+        let mut out = self.unary_op(
             |a| a / (1.0 + (-a).exp()),
             cuda_backend::fastnn_cuda_silu,
-        )
+        );
+        record(&mut out, &[self], Arc::new(SiluBackward {
+            input_ids: vec![self.id()],
+            input: self.clone(),
+        }));
+        out
     }
 
     pub fn leaky_relu(&self, negative_slope: f32) -> Tensor {
@@ -138,7 +240,7 @@ impl Tensor {
         let num_classes = *shape.last().unwrap();
         let batch_size = self.numel() / num_classes;
 
-        match &self.storage {
+        let out_inner = match &self.storage {
             TensorStorage::Cpu(data) => {
                 let mut result = vec![0.0f32; self.numel()];
                 for b in 0..batch_size {
@@ -155,9 +257,16 @@ impl Tensor {
             TensorStorage::Cuda(buf) => {
                 let out_buf = cuda_backend::cuda_softmax(buf, batch_size, num_classes)
                     .expect("CUDA softmax failed");
-                Tensor::from_cuda_buffer(out_buf, self.shape.clone(), self.requires_grad)
+                Tensor::from_cuda_buffer(out_buf, self.shape.clone(), false)
             }
-        }
+        };
+
+        let mut out = out_inner.clone();
+        record(&mut out, &[self], Arc::new(SoftmaxBackward {
+            input_ids: vec![self.id()],
+            output: out_inner,
+        }));
+        out
     }
 
     /// Log-softmax along the last dimension.
@@ -166,7 +275,7 @@ impl Tensor {
         let num_classes = *shape.last().unwrap();
         let batch_size = self.numel() / num_classes;
 
-        match &self.storage {
+        let out_inner = match &self.storage {
             TensorStorage::Cpu(data) => {
                 let mut result = vec![0.0f32; self.numel()];
                 for b in 0..batch_size {
@@ -183,9 +292,16 @@ impl Tensor {
             TensorStorage::Cuda(buf) => {
                 let out_buf = cuda_backend::cuda_log_softmax(buf, batch_size, num_classes)
                     .expect("CUDA log_softmax failed");
-                Tensor::from_cuda_buffer(out_buf, self.shape.clone(), self.requires_grad)
+                Tensor::from_cuda_buffer(out_buf, self.shape.clone(), false)
             }
-        }
+        };
+
+        let mut out = out_inner.clone();
+        record(&mut out, &[self], Arc::new(LogSoftmaxBackward {
+            input_ids: vec![self.id()],
+            output: out_inner,
+        }));
+        out
     }
 
     // ========================================================================
@@ -197,11 +313,18 @@ impl Tensor {
         assert!(self.ndim() >= 2 && other.ndim() >= 2, "matmul requires at least 2D tensors");
         assert_eq!(self.device, other.device, "Device mismatch");
 
-        if self.ndim() == 2 && other.ndim() == 2 {
+        let mut out = if self.ndim() == 2 && other.ndim() == 2 {
             self.matmul_2d(other)
         } else {
             self.matmul_batched(other)
-        }
+        };
+
+        record(&mut out, &[self, other], Arc::new(MatmulBackward {
+            input_ids: vec![self.id(), other.id()],
+            a: self.clone(),
+            b: other.clone(),
+        }));
+        out
     }
 
     fn matmul_2d(&self, other: &Tensor) -> Tensor {
@@ -291,7 +414,7 @@ impl Tensor {
         let rows = self.shape[self.ndim() - 2];
         let cols = self.shape[self.ndim() - 1];
 
-        match &self.storage {
+        let mut out = match &self.storage {
             TensorStorage::Cpu(data) => {
                 if self.ndim() == 2 {
                     let mut result = vec![0.0f32; data.len()];
@@ -306,14 +429,19 @@ impl Tensor {
                 }
             }
             TensorStorage::Cuda(buf) => {
-                let out = cuda_backend::cuda_transpose_2d(buf, rows, cols)
+                let out_buf = cuda_backend::cuda_transpose_2d(buf, rows, cols)
                     .expect("CUDA transpose failed");
                 let mut new_shape = self.shape.clone();
                 let n = new_shape.len();
                 new_shape.swap(n - 1, n - 2);
-                Tensor::from_cuda_buffer(out, new_shape, self.requires_grad)
+                Tensor::from_cuda_buffer(out_buf, new_shape, false)
             }
-        }
+        };
+
+        record(&mut out, &[self], Arc::new(TransposeBackward {
+            input_ids: vec![self.id()],
+        }));
+        out
     }
 
     // ========================================================================
@@ -322,32 +450,43 @@ impl Tensor {
 
     /// Sum of all elements.
     pub fn sum(&self) -> Tensor {
-        match &self.storage {
+        let mut out = match &self.storage {
             TensorStorage::Cpu(data) => {
                 let s: f32 = data.iter().sum();
                 Tensor::from_vec(vec![s], &[1])
             }
             TensorStorage::Cuda(buf) => {
-                let out = cuda_backend::cuda_sum(buf, self.numel())
+                let out_buf = cuda_backend::cuda_sum(buf, self.numel())
                     .expect("CUDA sum failed");
-                Tensor::from_cuda_buffer(out, vec![1], false)
+                Tensor::from_cuda_buffer(out_buf, vec![1], false)
             }
-        }
+        };
+        record(&mut out, &[self], Arc::new(SumBackward {
+            input_ids: vec![self.id()],
+            input_shape: self.shape().to_vec(),
+        }));
+        out
     }
 
     /// Mean of all elements.
     pub fn mean(&self) -> Tensor {
-        match &self.storage {
+        let mut out = match &self.storage {
             TensorStorage::Cpu(data) => {
                 let s: f32 = data.iter().sum::<f32>() / data.len() as f32;
                 Tensor::from_vec(vec![s], &[1])
             }
             TensorStorage::Cuda(buf) => {
-                let out = cuda_backend::cuda_mean(buf, self.numel())
+                let out_buf = cuda_backend::cuda_mean(buf, self.numel())
                     .expect("CUDA mean failed");
-                Tensor::from_cuda_buffer(out, vec![1], false)
+                Tensor::from_cuda_buffer(out_buf, vec![1], false)
             }
-        }
+        };
+        record(&mut out, &[self], Arc::new(MeanBackward {
+            input_ids: vec![self.id()],
+            input_numel: self.numel(),
+            input_shape: self.shape().to_vec(),
+        }));
+        out
     }
 
     /// Max of all elements.

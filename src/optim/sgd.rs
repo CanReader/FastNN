@@ -40,14 +40,17 @@ impl SGD {
 }
 
 impl Optimizer for SGD {
-    fn step(&mut self, params: &mut [Tensor], grads: &[Tensor]) {
-        assert_eq!(params.len(), grads.len());
-
+    fn step(&mut self, params: &mut [&mut Tensor]) {
         if self.velocities.len() != params.len() {
             self.velocities = vec![None; params.len()];
         }
 
-        for (i, (param, grad)) in params.iter_mut().zip(grads.iter()).enumerate() {
+        for (i, param) in params.iter_mut().enumerate() {
+            let grad = match param.grad() {
+                Some(g) => g,
+                None => continue, // no grad recorded — skip (e.g. unused parameter)
+            };
+
             let mut g = grad.clone();
 
             // L2 regularization
@@ -55,34 +58,23 @@ impl Optimizer for SGD {
                 g = g.add(&param.mul_scalar(self.weight_decay));
             }
 
-            if self.momentum != 0.0 {
+            let update = if self.momentum != 0.0 {
                 let v = match &self.velocities[i] {
                     Some(v) => v.mul_scalar(self.momentum).add(&g.mul_scalar(1.0 - self.dampening)),
                     None => g.clone(),
                 };
-
                 let update = if self.nesterov {
                     g.add(&v.mul_scalar(self.momentum))
                 } else {
                     v.clone()
                 };
-
                 self.velocities[i] = Some(v);
-
-                let new_data: Vec<f32> = param.to_vec().iter()
-                    .zip(update.to_vec().iter())
-                    .map(|(&p, &u)| p - self.lr * u)
-                    .collect();
-                *param = Tensor::from_vec(new_data, param.shape());
-                param.set_requires_grad(true);
+                update
             } else {
-                let new_data: Vec<f32> = param.to_vec().iter()
-                    .zip(g.to_vec().iter())
-                    .map(|(&p, &g_val)| p - self.lr * g_val)
-                    .collect();
-                *param = Tensor::from_vec(new_data, param.shape());
-                param.set_requires_grad(true);
-            }
+                g
+            };
+
+            param.apply_sgd_update(self.lr, &update);
         }
     }
 

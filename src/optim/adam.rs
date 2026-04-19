@@ -9,8 +9,8 @@ pub struct Adam {
     epsilon: f32,
     weight_decay: f32,
     step_count: usize,
-    m: Vec<Tensor>,  // first moment
-    v: Vec<Tensor>,  // second moment
+    m: Vec<Vec<f32>>,
+    v: Vec<Vec<f32>>,
     initialized: bool,
 }
 
@@ -47,52 +47,43 @@ impl Adam {
 }
 
 impl Optimizer for Adam {
-    fn step(&mut self, params: &mut [Tensor], grads: &[Tensor]) {
-        assert_eq!(params.len(), grads.len());
-
+    fn step(&mut self, params: &mut [&mut Tensor]) {
         if !self.initialized {
-            self.m = params.iter().map(|p| Tensor::zeros(p.shape())).collect();
-            self.v = params.iter().map(|p| Tensor::zeros(p.shape())).collect();
+            self.m = params.iter().map(|p| vec![0.0f32; p.numel()]).collect();
+            self.v = params.iter().map(|p| vec![0.0f32; p.numel()]).collect();
             self.initialized = true;
         }
 
         self.step_count += 1;
         let t = self.step_count as f32;
+        let bc1 = 1.0 - self.beta1.powf(t);
+        let bc2 = 1.0 - self.beta2.powf(t);
 
-        for (i, (param, grad)) in params.iter_mut().zip(grads.iter()).enumerate() {
+        for (i, param) in params.iter_mut().enumerate() {
+            let grad = match param.grad() {
+                Some(g) => g,
+                None => continue,
+            };
+
             let mut param_data = param.to_vec();
             let grad_data = grad.to_vec();
-            let mut m_data = self.m[i].to_vec();
-            let mut v_data = self.v[i].to_vec();
-
-            let bias_correction1 = 1.0 - self.beta1.powf(t);
-            let bias_correction2 = 1.0 - self.beta2.powf(t);
+            let m_data = &mut self.m[i];
+            let v_data = &mut self.v[i];
 
             for j in 0..param_data.len() {
-                let g = grad_data[j];
-
-                // L2 regularization (classic Adam, not decoupled)
                 let g = if self.weight_decay != 0.0 {
-                    g + self.weight_decay * param_data[j]
+                    grad_data[j] + self.weight_decay * param_data[j]
                 } else {
-                    g
+                    grad_data[j]
                 };
-
-                // Update moments
                 m_data[j] = self.beta1 * m_data[j] + (1.0 - self.beta1) * g;
                 v_data[j] = self.beta2 * v_data[j] + (1.0 - self.beta2) * g * g;
-
-                // Bias-corrected moments
-                let m_hat = m_data[j] / bias_correction1;
-                let v_hat = v_data[j] / bias_correction2;
-
+                let m_hat = m_data[j] / bc1;
+                let v_hat = v_data[j] / bc2;
                 param_data[j] -= self.lr * m_hat / (v_hat.sqrt() + self.epsilon);
             }
 
-            self.m[i] = Tensor::from_vec(m_data, param.shape());
-            self.v[i] = Tensor::from_vec(v_data, param.shape());
-            *param = Tensor::from_vec(param_data, param.shape());
-            param.set_requires_grad(true);
+            param.set_data_from_vec(param_data);
         }
     }
 
@@ -108,8 +99,8 @@ pub struct AdamW {
     epsilon: f32,
     weight_decay: f32,
     step_count: usize,
-    m: Vec<Tensor>,
-    v: Vec<Tensor>,
+    m: Vec<Vec<f32>>,
+    v: Vec<Vec<f32>>,
     initialized: bool,
 }
 
@@ -141,45 +132,41 @@ impl AdamW {
 }
 
 impl Optimizer for AdamW {
-    fn step(&mut self, params: &mut [Tensor], grads: &[Tensor]) {
-        assert_eq!(params.len(), grads.len());
-
+    fn step(&mut self, params: &mut [&mut Tensor]) {
         if !self.initialized {
-            self.m = params.iter().map(|p| Tensor::zeros(p.shape())).collect();
-            self.v = params.iter().map(|p| Tensor::zeros(p.shape())).collect();
+            self.m = params.iter().map(|p| vec![0.0f32; p.numel()]).collect();
+            self.v = params.iter().map(|p| vec![0.0f32; p.numel()]).collect();
             self.initialized = true;
         }
 
         self.step_count += 1;
         let t = self.step_count as f32;
+        let bc1 = 1.0 - self.beta1.powf(t);
+        let bc2 = 1.0 - self.beta2.powf(t);
 
-        for (i, (param, grad)) in params.iter_mut().zip(grads.iter()).enumerate() {
+        for (i, param) in params.iter_mut().enumerate() {
+            let grad = match param.grad() {
+                Some(g) => g,
+                None => continue,
+            };
             let mut param_data = param.to_vec();
             let grad_data = grad.to_vec();
-            let mut m_data = self.m[i].to_vec();
-            let mut v_data = self.v[i].to_vec();
-
-            let bias_correction1 = 1.0 - self.beta1.powf(t);
-            let bias_correction2 = 1.0 - self.beta2.powf(t);
+            let m_data = &mut self.m[i];
+            let v_data = &mut self.v[i];
 
             for j in 0..param_data.len() {
-                // Decoupled weight decay — applied directly to params
+                // Decoupled weight decay applied directly to params.
                 param_data[j] -= self.lr * self.weight_decay * param_data[j];
 
                 let g = grad_data[j];
                 m_data[j] = self.beta1 * m_data[j] + (1.0 - self.beta1) * g;
                 v_data[j] = self.beta2 * v_data[j] + (1.0 - self.beta2) * g * g;
-
-                let m_hat = m_data[j] / bias_correction1;
-                let v_hat = v_data[j] / bias_correction2;
-
+                let m_hat = m_data[j] / bc1;
+                let v_hat = v_data[j] / bc2;
                 param_data[j] -= self.lr * m_hat / (v_hat.sqrt() + self.epsilon);
             }
 
-            self.m[i] = Tensor::from_vec(m_data, param.shape());
-            self.v[i] = Tensor::from_vec(v_data, param.shape());
-            *param = Tensor::from_vec(param_data, param.shape());
-            param.set_requires_grad(true);
+            param.set_data_from_vec(param_data);
         }
     }
 

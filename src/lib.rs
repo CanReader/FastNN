@@ -44,6 +44,7 @@ pub mod prelude {
     pub use crate::optim::{LRScheduler, StepLR, CosineAnnealingLR, LinearWarmup, OneCycleLR};
     pub use crate::data::{Dataset, DataLoader};
     pub use crate::autograd::{Variable, BackwardGraph};
+    pub use crate::autograd::graph::{enable_grad, disable_grad, is_grad_enabled};
     pub use crate::serialize::{save_model, load_model, save_tensors, load_tensors};
     pub use crate::cuda::CudaContext;
     pub use crate::utils::random::manual_seed;
