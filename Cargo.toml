@@ -25,6 +25,8 @@ thiserror = "1.0"
 num-traits = "0.2"
 bytemuck = { version = "1.14", features = ["derive"] }
 libm = "0.2.16"
+ureq = "2.9"
+flate2 = "1.0"
 
 [build-dependencies]
 cc = { version = "1.0", features = ["parallel"] }
@@ -37,6 +39,10 @@ approx = "0.5"
 [[example]]
 name = "mnist"
 path = "examples/mnist.rs"
+
+[[example]]
+name = "mnist_mlp"
+path = "examples/mnist_mlp.rs"
 
 [[example]]
 name = "transformer"

@@ -1,7 +1,16 @@
+use std::sync::Arc;
+
 use crate::tensor::Tensor;
+use crate::autograd::graph;
+use crate::autograd::backward_ops::CrossEntropyBackward;
 
 /// Cross-entropy loss for classification.
 /// Expects logits [batch, num_classes] and targets [batch] (class indices).
+///
+/// Implemented as a fused autograd op: the forward computes softmax + log_softmax
+/// + NLL together (numerically stable), and records a backward node that produces
+/// `(softmax - one_hot) / batch_size` directly — avoiding the need for indexing
+/// ops in the autograd graph.
 pub struct CrossEntropyLoss;
 
 impl CrossEntropyLoss {
@@ -13,17 +22,47 @@ impl CrossEntropyLoss {
         let (batch_size, num_classes) = (shape[0], shape[1]);
         assert_eq!(targets.len(), batch_size);
 
-        let log_probs = logits.log_softmax();
-        let log_prob_data = log_probs.to_vec();
-
+        // Compute softmax and log-softmax in one pass (numerically stable).
+        let data = logits.to_vec();
+        let mut softmax = vec![0.0f32; batch_size * num_classes];
         let mut loss = 0.0f32;
-        for (b, &target) in targets.iter().enumerate() {
-            assert!(target < num_classes, "Target {} out of range", target);
-            loss -= log_prob_data[b * num_classes + target];
+        for b in 0..batch_size {
+            let off = b * num_classes;
+            let row = &data[off..off + num_classes];
+            let max = row.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let exp_sum: f32 = row.iter().map(|&x| (x - max).exp()).sum();
+            let log_sum_exp = exp_sum.ln();
+            for c in 0..num_classes {
+                softmax[off + c] = (row[c] - max).exp() / exp_sum;
+            }
+            let t = targets[b];
+            assert!(t < num_classes, "Target {} out of range", t);
+            // log_softmax[target] = logits[target] - max - log_sum_exp
+            loss -= row[t] - max - log_sum_exp;
         }
         loss /= batch_size as f32;
 
-        Tensor::from_vec(vec![loss], &[1])
+        let softmax_t = Tensor::from_vec(softmax, &[batch_size, num_classes]);
+        let mut out = Tensor::from_vec(vec![loss], &[1]);
+
+        // Record autograd node if tracking active and logits need grad.
+        if graph::is_grad_enabled() && logits.requires_grad() {
+            out.set_requires_grad(true);
+            let grad_fn = Arc::new(CrossEntropyBackward {
+                input_ids: vec![logits.id()],
+                softmax: softmax_t,
+                targets: targets.to_vec(),
+                batch_size,
+                num_classes,
+            });
+            graph::record_op_with_cells(
+                grad_fn,
+                out.id(),
+                vec![(logits.id(), logits.grad_cell())],
+            );
+        }
+
+        out
     }
 
     /// Forward returning both loss and gradient w.r.t. logits.
