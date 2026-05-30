@@ -100,18 +100,34 @@ impl Tensor {
 
     /// Raise all elements to a power.
     pub fn pow_scalar(&self, scalar: f32) -> Tensor {
-        // No backward wired yet — pow gradient not implemented in Phase 1.
-        self.scalar_op(scalar, |a, s| a.powf(s), cuda_backend::fastnn_cuda_pow_scalar)
+        let mut out = self.scalar_op(scalar, |a, s| a.powf(s), cuda_backend::fastnn_cuda_pow_scalar);
+        record(&mut out, &[self], Arc::new(PowScalarBackward {
+            input_ids: vec![self.id()],
+            input: self.clone(),
+            exponent: scalar,
+        }));
+        out
     }
 
     /// Element-wise square root.
     pub fn sqrt(&self) -> Tensor {
-        self.unary_op(|a| a.sqrt(), cuda_backend::fastnn_cuda_sqrt)
+        let out_inner = self.unary_op(|a| a.sqrt(), cuda_backend::fastnn_cuda_sqrt);
+        let mut out = out_inner.clone();
+        record(&mut out, &[self], Arc::new(SqrtBackward {
+            input_ids: vec![self.id()],
+            output: out_inner,
+        }));
+        out
     }
 
     /// Element-wise absolute value.
     pub fn abs(&self) -> Tensor {
-        self.unary_op(|a| a.abs(), cuda_backend::fastnn_cuda_abs)
+        let mut out = self.unary_op(|a| a.abs(), cuda_backend::fastnn_cuda_abs);
+        record(&mut out, &[self], Arc::new(AbsBackward {
+            input_ids: vec![self.id()],
+            input: self.clone(),
+        }));
+        out
     }
 
     /// Element-wise negation.
@@ -146,7 +162,7 @@ impl Tensor {
 
     /// Clamp all elements to [min_val, max_val].
     pub fn clamp(&self, min_val: f32, max_val: f32) -> Tensor {
-        match &self.storage {
+        let mut out = match &self.storage {
             TensorStorage::Cpu(data) => {
                 let result: Vec<f32> = data.iter().map(|&a| a.clamp(min_val, max_val)).collect();
                 Tensor::from_vec(result, &self.shape)
@@ -158,7 +174,14 @@ impl Tensor {
                 }
                 Tensor::from_cuda_buffer(out, self.shape.clone(), self.requires_grad)
             }
-        }
+        };
+        record(&mut out, &[self], Arc::new(ClampBackward {
+            input_ids: vec![self.id()],
+            input: self.clone(),
+            min_val,
+            max_val,
+        }));
+        out
     }
 
     // ========================================================================
@@ -219,7 +242,7 @@ impl Tensor {
     }
 
     pub fn leaky_relu(&self, negative_slope: f32) -> Tensor {
-        match &self.storage {
+        let mut out = match &self.storage {
             TensorStorage::Cpu(data) => {
                 let result: Vec<f32> = data.iter().map(|&a| if a > 0.0 { a } else { negative_slope * a }).collect();
                 Tensor::from_vec(result, &self.shape)
@@ -231,7 +254,13 @@ impl Tensor {
                 }
                 Tensor::from_cuda_buffer(out, self.shape.clone(), self.requires_grad)
             }
-        }
+        };
+        record(&mut out, &[self], Arc::new(LeakyReluBackward {
+            input_ids: vec![self.id()],
+            input: self.clone(),
+            negative_slope,
+        }));
+        out
     }
 
     /// Softmax along the last dimension.
@@ -416,8 +445,12 @@ impl Tensor {
             assert_eq!(k, other.shape[1]);
             match (&self.storage, &other.storage) {
                 (TensorStorage::Cuda(a), TensorStorage::Cuda(b)) => {
-                    let out = cuda_backend::cuda_matmul_nt(a, b, m, n, k).expect("CUDA matmul_nt failed");
-                    return Tensor::from_cuda_buffer(out, vec![m, n], false);
+                    let buf = cuda_backend::cuda_matmul_nt(a, b, m, n, k).expect("CUDA matmul_nt failed");
+                    let mut out = Tensor::from_cuda_buffer(buf, vec![m, n], false);
+                    record(&mut out, &[self, other], Arc::new(MatmulNtBackward {
+                        input_ids: vec![self.id(), other.id()], a: self.clone(), b: other.clone(),
+                    }));
+                    return out;
                 }
                 _ => {}
             }
@@ -429,14 +462,18 @@ impl Tensor {
             let batch: usize = a_shape[..a_shape.len()-2].iter().product();
             match (&self.storage, &other.storage) {
                 (TensorStorage::Cuda(a), TensorStorage::Cuda(b)) => {
-                    let out = cuda_backend::cuda_matmul_batched_nt(a, b, m, n, k, batch).expect("CUDA matmul_batched_nt failed");
+                    let buf = cuda_backend::cuda_matmul_batched_nt(a, b, m, n, k, batch).expect("CUDA matmul_batched_nt failed");
                     let mut out_shape = a_shape[..a_shape.len()-2].to_vec(); out_shape.push(m); out_shape.push(n);
-                    return Tensor::from_cuda_buffer(out, out_shape, false);
+                    let mut out = Tensor::from_cuda_buffer(buf, out_shape, false);
+                    record(&mut out, &[self, other], Arc::new(MatmulNtBackward {
+                        input_ids: vec![self.id(), other.id()], a: self.clone(), b: other.clone(),
+                    }));
+                    return out;
                 }
                 _ => {}
             }
         }
-        // CPU fallback: just do transpose + matmul
+        // CPU fallback: transpose + matmul (both record their own backward).
         self.matmul(&other.transpose())
     }
 
@@ -448,8 +485,12 @@ impl Tensor {
             assert_eq!(k, other.shape[0]);
             match (&self.storage, &other.storage) {
                 (TensorStorage::Cuda(a), TensorStorage::Cuda(b)) => {
-                    let out = cuda_backend::cuda_matmul_tn(a, b, m, n, k).expect("CUDA matmul_tn failed");
-                    return Tensor::from_cuda_buffer(out, vec![m, n], false);
+                    let buf = cuda_backend::cuda_matmul_tn(a, b, m, n, k).expect("CUDA matmul_tn failed");
+                    let mut out = Tensor::from_cuda_buffer(buf, vec![m, n], false);
+                    record(&mut out, &[self, other], Arc::new(MatmulTnBackward {
+                        input_ids: vec![self.id(), other.id()], a: self.clone(), b: other.clone(),
+                    }));
+                    return out;
                 }
                 _ => {}
             }
@@ -461,9 +502,13 @@ impl Tensor {
             let batch: usize = a_shape[..a_shape.len()-2].iter().product();
             match (&self.storage, &other.storage) {
                 (TensorStorage::Cuda(a), TensorStorage::Cuda(b)) => {
-                    let out = cuda_backend::cuda_matmul_batched_tn(a, b, m, n, k, batch).expect("CUDA matmul_batched_tn failed");
+                    let buf = cuda_backend::cuda_matmul_batched_tn(a, b, m, n, k, batch).expect("CUDA matmul_batched_tn failed");
                     let mut out_shape = a_shape[..a_shape.len()-2].to_vec(); out_shape.push(m); out_shape.push(n);
-                    return Tensor::from_cuda_buffer(out, out_shape, false);
+                    let mut out = Tensor::from_cuda_buffer(buf, out_shape, false);
+                    record(&mut out, &[self, other], Arc::new(MatmulTnBackward {
+                        input_ids: vec![self.id(), other.id()], a: self.clone(), b: other.clone(),
+                    }));
+                    return out;
                 }
                 _ => {}
             }
@@ -489,7 +534,24 @@ impl Tensor {
                     }
                     Tensor::from_vec(result, &[cols, rows])
                 } else {
-                    self.t()
+                    // N-D: transpose the last two dims of each batch slab, raw.
+                    // Must NOT delegate to self.t()/permute() — those record their
+                    // own backward node, which would double-count the gradient on
+                    // top of this function's TransposeBackward.
+                    let outer: usize = self.shape[..self.ndim() - 2].iter().product();
+                    let mut result = vec![0.0f32; data.len()];
+                    for o in 0..outer {
+                        let base = o * rows * cols;
+                        for i in 0..rows {
+                            for j in 0..cols {
+                                result[base + j * rows + i] = data[base + i * cols + j];
+                            }
+                        }
+                    }
+                    let mut new_shape = self.shape.clone();
+                    let n = new_shape.len();
+                    new_shape.swap(n - 1, n - 2);
+                    Tensor::from_vec(result, &new_shape)
                 }
             }
             TensorStorage::Cuda(buf) => {
@@ -596,21 +658,39 @@ impl Tensor {
     /// Sum along a specific axis.
     pub fn sum_axis(&self, axis: usize) -> Tensor {
         assert!(axis < self.ndim(), "Axis out of range");
+        let input_shape = self.shape.clone();
         let mut new_shape = self.shape.clone();
         let axis_size = new_shape.remove(axis);
         if new_shape.is_empty() {
             new_shape.push(1);
         }
 
-        // ── CUDA fast path ──────────────────────────────────────────────────
+        // ── Compute the reduced tensor (CUDA fast path or CPU) ──────────────
+        let mut out;
         #[cfg(feature = "cuda")]
-        if let TensorStorage::Cuda(buf) = &self.storage {
-            let out_buf = cuda_backend::cuda_sum_axis(buf, &self.shape, axis)
-                .expect("CUDA sum_axis failed");
-            return Tensor::from_cuda_buffer(out_buf, new_shape, false);
+        {
+            if let TensorStorage::Cuda(buf) = &self.storage {
+                let out_buf = cuda_backend::cuda_sum_axis(buf, &self.shape, axis)
+                    .expect("CUDA sum_axis failed");
+                out = Tensor::from_cuda_buffer(out_buf, new_shape.clone(), false);
+            } else {
+                out = self.sum_axis_cpu(axis, axis_size, &new_shape);
+            }
+        }
+        #[cfg(not(feature = "cuda"))]
+        {
+            out = self.sum_axis_cpu(axis, axis_size, &new_shape);
         }
 
-        // ── CPU path ────────────────────────────────────────────────────────
+        record(&mut out, &[self], Arc::new(SumAxisBackward {
+            input_ids: vec![self.id()],
+            input_shape,
+            axis,
+        }));
+        out
+    }
+
+    fn sum_axis_cpu(&self, axis: usize, axis_size: usize, new_shape: &[usize]) -> Tensor {
         let data = self.to_vec();
         let out_numel: usize = new_shape.iter().product();
         let mut result = vec![0.0f32; out_numel];
@@ -626,8 +706,7 @@ impl Tensor {
                 }
             }
         }
-
-        Tensor::from_vec(result, &new_shape)
+        Tensor::from_vec(result, new_shape)
     }
 
     /// Mean along a specific axis.

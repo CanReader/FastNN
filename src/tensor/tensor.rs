@@ -243,7 +243,7 @@ impl Tensor {
     pub fn backward(&self) {
         assert_eq!(self.numel(), 1,
                    "backward() requires a scalar tensor (numel=1), got shape {:?}", self.shape);
-        crate::autograd::graph::backward(self.id);
+        crate::autograd::graph::backward(self.id, self.device);
     }
 
     /// In-place SGD-style update: `self -= lr * grad`. Used by optimizers to

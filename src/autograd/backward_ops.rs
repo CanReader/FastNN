@@ -97,6 +97,42 @@ impl GradFn for MatmulBackward {
     fn name(&self) -> &str { "MatmulBackward" }
 }
 
+/// Backward for C = A @ Bᵀ  (matmul_nt).
+///   dA = dC @ B            (plain matmul)
+///   dB = dCᵀ @ A           (matmul_tn(dC, A))
+pub(crate) struct MatmulNtBackward {
+    pub input_ids: Vec<u64>,
+    pub a: Tensor,
+    pub b: Tensor,
+}
+impl GradFn for MatmulNtBackward {
+    fn backward(&self, grad_output: &Tensor) -> Vec<Tensor> {
+        let grad_a = grad_output.matmul(&self.b);
+        let grad_b = grad_output.matmul_tn(&self.a);
+        vec![grad_a, grad_b]
+    }
+    fn inputs(&self) -> Vec<u64> { self.input_ids.clone() }
+    fn name(&self) -> &str { "MatmulNtBackward" }
+}
+
+/// Backward for C = Aᵀ @ B  (matmul_tn).
+///   dA = B @ dCᵀ           (matmul_nt(B, dC))
+///   dB = A @ dC            (plain matmul)
+pub(crate) struct MatmulTnBackward {
+    pub input_ids: Vec<u64>,
+    pub a: Tensor,
+    pub b: Tensor,
+}
+impl GradFn for MatmulTnBackward {
+    fn backward(&self, grad_output: &Tensor) -> Vec<Tensor> {
+        let grad_a = self.b.matmul_nt(grad_output);
+        let grad_b = self.a.matmul(grad_output);
+        vec![grad_a, grad_b]
+    }
+    fn inputs(&self) -> Vec<u64> { self.input_ids.clone() }
+    fn name(&self) -> &str { "MatmulTnBackward" }
+}
+
 pub(crate) struct ReluBackward {
     pub input_ids: Vec<u64>,
     pub input: Tensor,
@@ -378,6 +414,118 @@ impl GradFn for LogBackward {
     }
     fn inputs(&self) -> Vec<u64> { self.input_ids.clone() }
     fn name(&self) -> &str { "LogBackward" }
+}
+
+/// Backward for sqrt: d/dx √x = 1/(2√x) = grad / (2·output).
+pub(crate) struct SqrtBackward {
+    pub input_ids: Vec<u64>,
+    pub output: Tensor, // √x
+}
+impl GradFn for SqrtBackward {
+    fn backward(&self, grad_output: &Tensor) -> Vec<Tensor> {
+        vec![grad_output.div(&self.output.mul_scalar(2.0))]
+    }
+    fn inputs(&self) -> Vec<u64> { self.input_ids.clone() }
+    fn name(&self) -> &str { "SqrtBackward" }
+}
+
+/// Backward for abs: d/dx |x| = sign(x).
+pub(crate) struct AbsBackward {
+    pub input_ids: Vec<u64>,
+    pub input: Tensor,
+}
+impl GradFn for AbsBackward {
+    fn backward(&self, grad_output: &Tensor) -> Vec<Tensor> {
+        let sign: Vec<f32> = self.input.to_vec().iter()
+            .map(|&x| if x > 0.0 { 1.0 } else if x < 0.0 { -1.0 } else { 0.0 })
+            .collect();
+        let s = Tensor::from_vec(sign, self.input.shape()).to_device(grad_output.device());
+        vec![grad_output.mul(&s)]
+    }
+    fn inputs(&self) -> Vec<u64> { self.input_ids.clone() }
+    fn name(&self) -> &str { "AbsBackward" }
+}
+
+/// Backward for pow_scalar: d/dx xᵖ = p·xᵖ⁻¹.
+pub(crate) struct PowScalarBackward {
+    pub input_ids: Vec<u64>,
+    pub input: Tensor,
+    pub exponent: f32,
+}
+impl GradFn for PowScalarBackward {
+    fn backward(&self, grad_output: &Tensor) -> Vec<Tensor> {
+        let local = self.input.pow_scalar(self.exponent - 1.0).mul_scalar(self.exponent);
+        vec![grad_output.mul(&local)]
+    }
+    fn inputs(&self) -> Vec<u64> { self.input_ids.clone() }
+    fn name(&self) -> &str { "PowScalarBackward" }
+}
+
+/// Backward for leaky_relu: d/dx = 1 if x>0 else negative_slope.
+pub(crate) struct LeakyReluBackward {
+    pub input_ids: Vec<u64>,
+    pub input: Tensor,
+    pub negative_slope: f32,
+}
+impl GradFn for LeakyReluBackward {
+    fn backward(&self, grad_output: &Tensor) -> Vec<Tensor> {
+        let slope = self.negative_slope;
+        let mask: Vec<f32> = self.input.to_vec().iter()
+            .map(|&x| if x > 0.0 { 1.0 } else { slope })
+            .collect();
+        let m = Tensor::from_vec(mask, self.input.shape()).to_device(grad_output.device());
+        vec![grad_output.mul(&m)]
+    }
+    fn inputs(&self) -> Vec<u64> { self.input_ids.clone() }
+    fn name(&self) -> &str { "LeakyReluBackward" }
+}
+
+/// Backward for clamp: gradient passes through only where min ≤ x ≤ max.
+pub(crate) struct ClampBackward {
+    pub input_ids: Vec<u64>,
+    pub input: Tensor,
+    pub min_val: f32,
+    pub max_val: f32,
+}
+impl GradFn for ClampBackward {
+    fn backward(&self, grad_output: &Tensor) -> Vec<Tensor> {
+        let (lo, hi) = (self.min_val, self.max_val);
+        let mask: Vec<f32> = self.input.to_vec().iter()
+            .map(|&x| if x >= lo && x <= hi { 1.0 } else { 0.0 })
+            .collect();
+        let m = Tensor::from_vec(mask, self.input.shape()).to_device(grad_output.device());
+        vec![grad_output.mul(&m)]
+    }
+    fn inputs(&self) -> Vec<u64> { self.input_ids.clone() }
+    fn name(&self) -> &str { "ClampBackward" }
+}
+
+/// Backward for sum_axis: the upstream gradient broadcasts uniformly over the
+/// summed axis (each input element along that axis contributed equally).
+pub(crate) struct SumAxisBackward {
+    pub input_ids: Vec<u64>,
+    pub input_shape: Vec<usize>,
+    pub axis: usize,
+}
+impl GradFn for SumAxisBackward {
+    fn backward(&self, grad_output: &Tensor) -> Vec<Tensor> {
+        let axis = self.axis;
+        let axis_size = self.input_shape[axis];
+        let outer: usize = self.input_shape[..axis].iter().product();
+        let inner: usize = self.input_shape[axis + 1..].iter().product();
+        let go = grad_output.to_vec();
+        let mut gi = vec![0.0f32; outer * axis_size * inner];
+        for o in 0..outer {
+            for a in 0..axis_size {
+                for i in 0..inner {
+                    gi[(o * axis_size + a) * inner + i] = go[o * inner + i];
+                }
+            }
+        }
+        vec![Tensor::from_vec(gi, &self.input_shape).to_device(grad_output.device())]
+    }
+    fn inputs(&self) -> Vec<u64> { self.input_ids.clone() }
+    fn name(&self) -> &str { "SumAxisBackward" }
 }
 
 pub(crate) struct ExpBackward {

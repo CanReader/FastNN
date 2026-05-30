@@ -34,7 +34,7 @@ impl Variable {
 
     /// Run backward from this variable (expected to be a scalar loss).
     pub fn backward(&self) -> std::collections::HashMap<u64, Tensor> {
-        let grads = graph::backward(self.id());
+        let grads = graph::backward(self.id(), self.tensor.device());
         if let Some(g) = grads.get(&self.id()) {
             self.tensor.set_grad(g.clone());
         }

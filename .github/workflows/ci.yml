@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  # CPU-only build + the full finite-difference gradient-check suite.
+  # No CUDA toolkit on GitHub runners, so this exercises the CPU autograd math
+  # (which the CUDA kernels are validated against locally via cuda_parity).
+  cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build (CPU-only)
+        run: cargo build --no-default-features --all-targets
+
+      - name: Gradient checks (finite difference)
+        run: cargo test --no-default-features --test gradcheck -- --nocapture
+
+      - name: Unit + integration tests
+        run: cargo test --no-default-features
+
+      - name: Clippy
+        run: cargo clippy --no-default-features --all-targets -- -D warnings
+        continue-on-error: true   # warnings tracked, not yet gating

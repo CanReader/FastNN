@@ -31,3 +31,6 @@ GUIDE.md
 # Environment
 .env
 *.log
+
+# Model checkpoints
+*.fdl

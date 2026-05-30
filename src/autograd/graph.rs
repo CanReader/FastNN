@@ -65,9 +65,14 @@ impl BackwardGraph {
     }
 
     /// Run backward pass starting from the given scalar loss.
-    pub fn backward(&mut self, loss_id: u64) {
-        // Seed with gradient of 1.0 for the loss scalar.
-        self.grads.insert(loss_id, Tensor::ones(&[1]));
+    ///
+    /// `loss_device` is the device the loss tensor lives on; the seed gradient
+    /// must match it, otherwise device-preserving grad fns (e.g. `SumBackward`)
+    /// propagate a CPU gradient into a GPU graph and ops panic on a device
+    /// mismatch.
+    pub fn backward(&mut self, loss_id: u64, loss_device: crate::tensor::Device) {
+        // Seed with gradient of 1.0 for the loss scalar, on the loss's device.
+        self.grads.insert(loss_id, Tensor::ones(&[1]).to_device(loss_device));
 
         for node in self.nodes.iter().rev() {
             let grad_output = match self.grads.get(&node.output_id) {
@@ -175,12 +180,12 @@ pub fn record_op(grad_fn: Arc<dyn GradFn>, output_id: u64) {
 /// tensor ops invoked by `GradFn::backward` implementations don't re-enter the
 /// cell (they'll see `is_grad_enabled() == false` during the backward pass,
 /// which is what we want — we don't record the backward computation itself).
-pub fn backward(loss_id: u64) -> HashMap<u64, Tensor> {
+pub fn backward(loss_id: u64, loss_device: crate::tensor::Device) -> HashMap<u64, Tensor> {
     let mut graph = match GLOBAL_GRAPH.with(|g| g.borrow_mut().take()) {
         Some(g) => g,
         None => return HashMap::new(),
     };
-    graph.backward(loss_id);
+    graph.backward(loss_id, loss_device);
     let grads = graph.gradients().clone();
     // Don't restore — the tape is consumed. Caller must `enable_grad()` again
     // before the next training forward pass.
