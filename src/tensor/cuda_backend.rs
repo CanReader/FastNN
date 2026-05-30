@@ -36,12 +36,41 @@ extern "C" {
 
     // Softmax
     pub fn fastnn_cuda_softmax(input: *const f32, output: *mut f32, batch_size: i32, num_classes: i32) -> i32;
+    pub fn fastnn_cuda_softmax_backward(grad_output: *const f32, output: *const f32, grad_input: *mut f32, batch_size: i32, num_classes: i32) -> i32;
     pub fn fastnn_cuda_log_softmax(input: *const f32, output: *mut f32, batch_size: i32, num_classes: i32) -> i32;
+
+    // Layer Normalisation
+    pub fn fastnn_cuda_layer_norm_forward(
+        input: *const f32, gamma: *const f32, beta: *const f32,
+        output: *mut f32, mean: *mut f32, inv_var: *mut f32,
+        batch_size: i32, normalized_size: i32, epsilon: f32) -> i32;
+    pub fn fastnn_cuda_layer_norm_backward(
+        grad_output: *const f32, input: *const f32,
+        gamma: *const f32, mean: *const f32, inv_var: *const f32,
+        grad_input: *mut f32, grad_gamma: *mut f32, grad_beta: *mut f32,
+        batch_size: i32, normalized_size: i32) -> i32;
+
+    // Embedding
+    pub fn fastnn_cuda_embedding_forward(
+        indices: *const i32, weight: *const f32, output: *mut f32,
+        num_indices: i32, embedding_dim: i32) -> i32;
+    pub fn fastnn_cuda_embedding_backward(
+        indices: *const i32, grad_output: *const f32, grad_weight: *mut f32,
+        num_indices: i32, embedding_dim: i32, num_embeddings: i32) -> i32;
 
     // Matrix ops
     pub fn fastnn_cuda_matmul(a: *const f32, b: *const f32, c: *mut f32, m: i32, n: i32, k: i32, lda: i32, ldb: i32, ldc: i32, alpha: f32, beta: f32) -> i32;
     pub fn fastnn_cuda_matmul_batched(a: *const f32, b: *const f32, c: *mut f32, m: i32, n: i32, k: i32, batch_size: i32, alpha: f32, beta: f32) -> i32;
+    pub fn fastnn_cuda_matmul_nt(a: *const f32, b: *const f32, c: *mut f32, m: i32, n: i32, k: i32) -> i32;
+    pub fn fastnn_cuda_matmul_tn(a: *const f32, b: *const f32, c: *mut f32, m: i32, n: i32, k: i32) -> i32;
+    pub fn fastnn_cuda_matmul_batched_nt(a: *const f32, b: *const f32, c: *mut f32, m: i32, n: i32, k: i32, batch: i32) -> i32;
+    pub fn fastnn_cuda_matmul_batched_tn(a: *const f32, b: *const f32, c: *mut f32, m: i32, n: i32, k: i32, batch: i32) -> i32;
     pub fn fastnn_cuda_transpose(input: *const f32, output: *mut f32, rows: i32, cols: i32) -> i32;
+    pub fn fastnn_cuda_transpose_batched(input: *const f32, output: *mut f32, batch: i32, rows: i32, cols: i32) -> i32;
+    pub fn fastnn_cuda_permute_nd(input: *const f32, output: *mut f32, out_strides: *const i32, in_strides: *const i32, perm: *const i32, ndim: i32, numel: i32) -> i32;
+
+    // Axis-wise sum reduction
+    pub fn fastnn_cuda_sum_axis(input: *const f32, output: *mut f32, shape: *const i32, ndim: i32, axis: i32, total: i32) -> i32;
 
     // Reductions
     pub fn fastnn_cuda_sum(input: *const f32, output: *mut f32, n: usize) -> i32;
@@ -117,11 +146,91 @@ pub fn cuda_matmul_batched(a: &CudaBuffer, b: &CudaBuffer, m: usize, n: usize, k
     Ok(out)
 }
 
-/// Transpose on GPU.
+/// Transpose on GPU (2D only).
 pub fn cuda_transpose_2d(a: &CudaBuffer, rows: usize, cols: usize) -> Result<CudaBuffer, String> {
     let out = CudaBuffer::new(rows * cols)?;
     let ret = unsafe { fastnn_cuda_transpose(a.as_ptr(), out.ptr(), rows as i32, cols as i32) };
     if ret != 0 { return Err("CUDA transpose failed".to_string()); }
+    Ok(out)
+}
+
+/// Sum along one axis on GPU.
+pub fn cuda_sum_axis(input: &CudaBuffer, shape: &[usize], axis: usize) -> Result<CudaBuffer, String> {
+    let total = input.len();
+    let axis_size = shape[axis];
+    let out_numel = total / axis_size;
+    let out = CudaBuffer::new(out_numel)?;
+    let shape_i32: Vec<i32> = shape.iter().map(|&s| s as i32).collect();
+    let ret = unsafe {
+        fastnn_cuda_sum_axis(
+            input.as_ptr(), out.ptr(),
+            shape_i32.as_ptr(), shape.len() as i32, axis as i32, total as i32,
+        )
+    };
+    if ret != 0 { return Err("CUDA sum_axis failed".to_string()); }
+    Ok(out)
+}
+
+/// C (m×n) = A (m×k) × B^T (k×n), B stored (n×k) row-major.
+pub fn cuda_matmul_nt(a: &CudaBuffer, b: &CudaBuffer, m: usize, n: usize, k: usize) -> Result<CudaBuffer, String> {
+    let out = CudaBuffer::new(m * n)?;
+    let ret = unsafe { fastnn_cuda_matmul_nt(a.as_ptr(), b.as_ptr(), out.ptr(), m as i32, n as i32, k as i32) };
+    if ret != 0 { return Err("CUDA matmul_nt failed".to_string()); }
+    Ok(out)
+}
+
+/// C (m×n) = A^T (m×k) × B (k×n), A stored (k×m) row-major.
+pub fn cuda_matmul_tn(a: &CudaBuffer, b: &CudaBuffer, m: usize, n: usize, k: usize) -> Result<CudaBuffer, String> {
+    let out = CudaBuffer::new(m * n)?;
+    let ret = unsafe { fastnn_cuda_matmul_tn(a.as_ptr(), b.as_ptr(), out.ptr(), m as i32, n as i32, k as i32) };
+    if ret != 0 { return Err("CUDA matmul_tn failed".to_string()); }
+    Ok(out)
+}
+
+/// Batched C (batch×m×n) = A (batch×m×k) × B^T (batch×k×n), B stored (batch×n×k).
+pub fn cuda_matmul_batched_nt(a: &CudaBuffer, b: &CudaBuffer, m: usize, n: usize, k: usize, batch: usize) -> Result<CudaBuffer, String> {
+    let out = CudaBuffer::new(batch * m * n)?;
+    let ret = unsafe { fastnn_cuda_matmul_batched_nt(a.as_ptr(), b.as_ptr(), out.ptr(), m as i32, n as i32, k as i32, batch as i32) };
+    if ret != 0 { return Err("CUDA matmul_batched_nt failed".to_string()); }
+    Ok(out)
+}
+
+/// Batched C (batch×m×n) = A^T (batch×m×k) × B (batch×k×n), A stored (batch×k×m).
+pub fn cuda_matmul_batched_tn(a: &CudaBuffer, b: &CudaBuffer, m: usize, n: usize, k: usize, batch: usize) -> Result<CudaBuffer, String> {
+    let out = CudaBuffer::new(batch * m * n)?;
+    let ret = unsafe { fastnn_cuda_matmul_batched_tn(a.as_ptr(), b.as_ptr(), out.ptr(), m as i32, n as i32, k as i32, batch as i32) };
+    if ret != 0 { return Err("CUDA matmul_batched_tn failed".to_string()); }
+    Ok(out)
+}
+
+/// Batched transpose of the last two dims: input [batch, rows, cols] → [batch, cols, rows].
+pub fn cuda_transpose_batched(a: &CudaBuffer, batch: usize, rows: usize, cols: usize) -> Result<CudaBuffer, String> {
+    let out = CudaBuffer::new(batch * rows * cols)?;
+    let ret = unsafe { fastnn_cuda_transpose_batched(a.as_ptr(), out.ptr(), batch as i32, rows as i32, cols as i32) };
+    if ret != 0 { return Err("CUDA batched transpose failed".to_string()); }
+    Ok(out)
+}
+
+/// N-D permute on GPU.
+pub fn cuda_permute_nd(
+    input: &CudaBuffer,
+    out_strides: &[usize],
+    in_strides: &[usize],
+    perm: &[usize],
+    numel: usize,
+) -> Result<CudaBuffer, String> {
+    let out = CudaBuffer::new(numel)?;
+    let out_s: Vec<i32> = out_strides.iter().map(|&x| x as i32).collect();
+    let in_s: Vec<i32> = in_strides.iter().map(|&x| x as i32).collect();
+    let p: Vec<i32> = perm.iter().map(|&x| x as i32).collect();
+    let ret = unsafe {
+        fastnn_cuda_permute_nd(
+            input.as_ptr(), out.ptr(),
+            out_s.as_ptr(), in_s.as_ptr(), p.as_ptr(),
+            perm.len() as i32, numel as i32,
+        )
+    };
+    if ret != 0 { return Err("CUDA permute_nd failed".to_string()); }
     Ok(out)
 }
 
@@ -131,6 +240,105 @@ pub fn cuda_sum(a: &CudaBuffer, n: usize) -> Result<CudaBuffer, String> {
     let ret = unsafe { fastnn_cuda_sum(a.as_ptr(), out.ptr(), n) };
     if ret != 0 { return Err("CUDA sum failed".to_string()); }
     Ok(out)
+}
+
+/// Upload integer indices to GPU as a CudaBuffer.
+/// Safe because i32 and f32 are both 4 bytes; the CUDA kernel casts back to int*.
+pub fn cuda_upload_indices(indices: &[i32]) -> Result<CudaBuffer, String> {
+    let floats: &[f32] = unsafe {
+        std::slice::from_raw_parts(indices.as_ptr() as *const f32, indices.len())
+    };
+    CudaBuffer::from_slice(floats)
+}
+
+/// LayerNorm forward. Returns (output, mean, inv_var) all on GPU.
+pub fn cuda_layer_norm_forward(
+    input: &CudaBuffer, gamma: &CudaBuffer, beta: &CudaBuffer,
+    batch: usize, norm_size: usize, eps: f32,
+) -> Result<(CudaBuffer, CudaBuffer, CudaBuffer), String> {
+    let out = CudaBuffer::new(batch * norm_size)?;
+    let mean = CudaBuffer::new(batch)?;
+    let inv_var = CudaBuffer::new(batch)?;
+    let ret = unsafe {
+        fastnn_cuda_layer_norm_forward(
+            input.as_ptr(), gamma.as_ptr(), beta.as_ptr(),
+            out.ptr(), mean.ptr(), inv_var.ptr(),
+            batch as i32, norm_size as i32, eps,
+        )
+    };
+    if ret != 0 { return Err("CUDA layer_norm_forward failed".to_string()); }
+    Ok((out, mean, inv_var))
+}
+
+/// LayerNorm backward. Returns (grad_input, grad_gamma, grad_beta) all on GPU.
+pub fn cuda_layer_norm_backward(
+    grad_output: &CudaBuffer, input: &CudaBuffer, gamma: &CudaBuffer,
+    mean: &CudaBuffer, inv_var: &CudaBuffer,
+    batch: usize, norm_size: usize,
+) -> Result<(CudaBuffer, CudaBuffer, CudaBuffer), String> {
+    let gi = CudaBuffer::new(batch * norm_size)?;
+    let gg = CudaBuffer::new(norm_size)?;
+    let gb = CudaBuffer::new(norm_size)?;
+    let ret = unsafe {
+        fastnn_cuda_layer_norm_backward(
+            grad_output.as_ptr(), input.as_ptr(), gamma.as_ptr(),
+            mean.as_ptr(), inv_var.as_ptr(),
+            gi.ptr(), gg.ptr(), gb.ptr(),
+            batch as i32, norm_size as i32,
+        )
+    };
+    if ret != 0 { return Err("CUDA layer_norm_backward failed".to_string()); }
+    Ok((gi, gg, gb))
+}
+
+/// Embedding gather on GPU. `indices_buf` holds i32 indices as reinterpreted f32 bytes.
+pub fn cuda_embedding_forward(
+    indices_buf: &CudaBuffer, weight: &CudaBuffer,
+    num_indices: usize, emb_dim: usize,
+) -> Result<CudaBuffer, String> {
+    let out = CudaBuffer::new(num_indices * emb_dim)?;
+    let ret = unsafe {
+        fastnn_cuda_embedding_forward(
+            indices_buf.as_ptr() as *const i32,
+            weight.as_ptr(), out.ptr(),
+            num_indices as i32, emb_dim as i32,
+        )
+    };
+    if ret != 0 { return Err("CUDA embedding_forward failed".to_string()); }
+    Ok(out)
+}
+
+/// Embedding backward scatter-add on GPU. Returns grad_weight buffer.
+pub fn cuda_embedding_backward(
+    indices_buf: &CudaBuffer, grad_output: &CudaBuffer,
+    num_indices: usize, emb_dim: usize, vocab_size: usize,
+) -> Result<CudaBuffer, String> {
+    let gw = CudaBuffer::new(vocab_size * emb_dim)?;
+    let ret = unsafe {
+        fastnn_cuda_embedding_backward(
+            indices_buf.as_ptr() as *const i32,
+            grad_output.as_ptr(), gw.ptr(),
+            num_indices as i32, emb_dim as i32, vocab_size as i32,
+        )
+    };
+    if ret != 0 { return Err("CUDA embedding_backward failed".to_string()); }
+    Ok(gw)
+}
+
+/// Softmax backward on GPU.
+pub fn cuda_softmax_backward(
+    grad_output: &CudaBuffer, softmax_output: &CudaBuffer,
+    batch: usize, classes: usize,
+) -> Result<CudaBuffer, String> {
+    let gi = CudaBuffer::new(batch * classes)?;
+    let ret = unsafe {
+        fastnn_cuda_softmax_backward(
+            grad_output.as_ptr(), softmax_output.as_ptr(), gi.ptr(),
+            batch as i32, classes as i32,
+        )
+    };
+    if ret != 0 { return Err("CUDA softmax_backward failed".to_string()); }
+    Ok(gi)
 }
 
 /// Mean reduction on GPU.

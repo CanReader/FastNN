@@ -444,6 +444,68 @@ extern "C" int fastnn_cuda_matmul(const float* a, const float* b, float* c,
     return 0;
 }
 
+// ─── Transpose-fused GEMM variants ─────────────────────────────────────────
+// All matrices are row-major. cuBLAS is column-major so we use the standard
+// "C^T = B^T × A^T" trick: pass arguments in reversed order with swapped dims.
+//
+// C (m×n) = A (m×k) × B^T (k×n)  where B is stored (n×k) row-major.
+extern "C" int fastnn_cuda_matmul_nt(const float* a, const float* b, float* c,
+                                      int m, int n, int k) {
+    float alpha = 1.0f, beta = 0.0f;
+    // C^T (n×m) = B (n×k) × A^T (k×m)
+    CUBLAS_CHECK(cublasSgemm(g_cublas_handle,
+                             CUBLAS_OP_T, CUBLAS_OP_N,
+                             n, m, k,
+                             &alpha, b, k, a, k, &beta, c, n));
+    return 0;
+}
+
+// C (m×n) = A^T (m×k) × B (k×n)  where A is stored (k×m) row-major.
+extern "C" int fastnn_cuda_matmul_tn(const float* a, const float* b, float* c,
+                                      int m, int n, int k) {
+    float alpha = 1.0f, beta = 0.0f;
+    // C^T (n×m) = B^T (n×k) × A (k×m) — A (k×m) row-major, lda=m
+    CUBLAS_CHECK(cublasSgemm(g_cublas_handle,
+                             CUBLAS_OP_N, CUBLAS_OP_T,
+                             n, m, k,
+                             &alpha, b, n, a, m, &beta, c, n));
+    return 0;
+}
+
+// Batched C (batch×m×n) = A (batch×m×k) × B^T (batch×k×n)  where B is (batch×n×k).
+extern "C" int fastnn_cuda_matmul_batched_nt(const float* a, const float* b, float* c,
+                                               int m, int n, int k, int batch_size) {
+    float alpha = 1.0f, beta = 0.0f;
+    long long stride_a = (long long)m * k;
+    long long stride_b = (long long)n * k;
+    long long stride_c = (long long)m * n;
+    CUBLAS_CHECK(cublasSgemmStridedBatched(g_cublas_handle,
+                                            CUBLAS_OP_T, CUBLAS_OP_N,
+                                            n, m, k,
+                                            &alpha, b, k, stride_b,
+                                            a, k, stride_a,
+                                            &beta, c, n, stride_c,
+                                            batch_size));
+    return 0;
+}
+
+// Batched C (batch×m×n) = A^T (batch×m×k) × B (batch×k×n)  where A is (batch×k×m).
+extern "C" int fastnn_cuda_matmul_batched_tn(const float* a, const float* b, float* c,
+                                               int m, int n, int k, int batch_size) {
+    float alpha = 1.0f, beta = 0.0f;
+    long long stride_a = (long long)k * m;
+    long long stride_b = (long long)k * n;
+    long long stride_c = (long long)m * n;
+    CUBLAS_CHECK(cublasSgemmStridedBatched(g_cublas_handle,
+                                            CUBLAS_OP_N, CUBLAS_OP_T,
+                                            n, m, k,
+                                            &alpha, b, n, stride_b,
+                                            a, m, stride_a,
+                                            &beta, c, n, stride_c,
+                                            batch_size));
+    return 0;
+}
+
 extern "C" int fastnn_cuda_matmul_batched(const float* a, const float* b, float* c,
                                             int m, int n, int k, int batch_size,
                                             float alpha, float beta) {
@@ -515,6 +577,53 @@ extern "C" int fastnn_cuda_transpose_batched(const float* input, float* output, 
     dim3 threads(TILE_SIZE, TILE_SIZE);
     dim3 blocks(div_ceil(cols, TILE_SIZE), div_ceil(rows, TILE_SIZE), batch_size);
     kernel_transpose_batched<<<blocks, threads>>>(input, output, batch_size, rows, cols);
+    CUDA_CHECK(cudaGetLastError());
+    return 0;
+}
+
+// ============================================================================
+// N-D Permute
+// ============================================================================
+struct PermuteNDParams {
+    int out_strides[8];
+    int in_strides[8];
+    int perm[8];
+    int ndim;
+};
+
+__global__ void kernel_permute_nd(
+    const float* __restrict__ input,
+    float* __restrict__ output,
+    PermuteNDParams params,
+    int numel)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= numel) return;
+
+    int rem = idx;
+    int in_idx = 0;
+    for (int d = 0; d < params.ndim; d++) {
+        int coord = (params.out_strides[d] > 0) ? (rem / params.out_strides[d]) : 0;
+        rem -= coord * params.out_strides[d];
+        in_idx += coord * params.in_strides[params.perm[d]];
+    }
+    output[idx] = input[in_idx];
+}
+
+extern "C" int fastnn_cuda_permute_nd(
+    const float* input, float* output,
+    const int* out_strides, const int* in_strides, const int* perm,
+    int ndim, int numel)
+{
+    PermuteNDParams params;
+    params.ndim = ndim;
+    for (int i = 0; i < ndim && i < 8; i++) {
+        params.out_strides[i] = out_strides[i];
+        params.in_strides[i]  = in_strides[i];
+        params.perm[i]        = perm[i];
+    }
+    int blocks = div_ceil(numel, BLOCK_SIZE);
+    kernel_permute_nd<<<blocks, BLOCK_SIZE>>>(input, output, params, numel);
     CUDA_CHECK(cudaGetLastError());
     return 0;
 }

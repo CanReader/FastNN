@@ -408,6 +408,70 @@ impl Tensor {
         }
     }
 
+    /// C (m×n) = self (m×k) × other^T (k×n), other stored (n×k). No transpose buffer allocated.
+    pub fn matmul_nt(&self, other: &Tensor) -> Tensor {
+        assert!(self.ndim() >= 2 && other.ndim() >= 2);
+        if self.ndim() == 2 && other.ndim() == 2 {
+            let m = self.shape[0]; let k = self.shape[1]; let n = other.shape[0];
+            assert_eq!(k, other.shape[1]);
+            match (&self.storage, &other.storage) {
+                (TensorStorage::Cuda(a), TensorStorage::Cuda(b)) => {
+                    let out = cuda_backend::cuda_matmul_nt(a, b, m, n, k).expect("CUDA matmul_nt failed");
+                    return Tensor::from_cuda_buffer(out, vec![m, n], false);
+                }
+                _ => {}
+            }
+        } else {
+            let a_shape = self.shape();
+            let b_shape = other.shape();
+            let m = a_shape[a_shape.len()-2]; let k = a_shape[a_shape.len()-1]; let n = b_shape[b_shape.len()-2];
+            assert_eq!(k, b_shape[b_shape.len()-1]);
+            let batch: usize = a_shape[..a_shape.len()-2].iter().product();
+            match (&self.storage, &other.storage) {
+                (TensorStorage::Cuda(a), TensorStorage::Cuda(b)) => {
+                    let out = cuda_backend::cuda_matmul_batched_nt(a, b, m, n, k, batch).expect("CUDA matmul_batched_nt failed");
+                    let mut out_shape = a_shape[..a_shape.len()-2].to_vec(); out_shape.push(m); out_shape.push(n);
+                    return Tensor::from_cuda_buffer(out, out_shape, false);
+                }
+                _ => {}
+            }
+        }
+        // CPU fallback: just do transpose + matmul
+        self.matmul(&other.transpose())
+    }
+
+    /// C (m×n) = self^T (m×k) × other (k×n), self stored (k×m). No transpose buffer allocated.
+    pub fn matmul_tn(&self, other: &Tensor) -> Tensor {
+        assert!(self.ndim() >= 2 && other.ndim() >= 2);
+        if self.ndim() == 2 && other.ndim() == 2 {
+            let k = self.shape[0]; let m = self.shape[1]; let n = other.shape[1];
+            assert_eq!(k, other.shape[0]);
+            match (&self.storage, &other.storage) {
+                (TensorStorage::Cuda(a), TensorStorage::Cuda(b)) => {
+                    let out = cuda_backend::cuda_matmul_tn(a, b, m, n, k).expect("CUDA matmul_tn failed");
+                    return Tensor::from_cuda_buffer(out, vec![m, n], false);
+                }
+                _ => {}
+            }
+        } else {
+            let a_shape = self.shape();
+            let b_shape = other.shape();
+            let k = a_shape[a_shape.len()-2]; let m = a_shape[a_shape.len()-1]; let n = b_shape[b_shape.len()-1];
+            assert_eq!(k, b_shape[b_shape.len()-2]);
+            let batch: usize = a_shape[..a_shape.len()-2].iter().product();
+            match (&self.storage, &other.storage) {
+                (TensorStorage::Cuda(a), TensorStorage::Cuda(b)) => {
+                    let out = cuda_backend::cuda_matmul_batched_tn(a, b, m, n, k, batch).expect("CUDA matmul_batched_tn failed");
+                    let mut out_shape = a_shape[..a_shape.len()-2].to_vec(); out_shape.push(m); out_shape.push(n);
+                    return Tensor::from_cuda_buffer(out, out_shape, false);
+                }
+                _ => {}
+            }
+        }
+        // CPU fallback
+        self.transpose().matmul(other)
+    }
+
     /// Transpose the last two dimensions (wrapper for GPU too).
     pub fn transpose(&self) -> Tensor {
         assert!(self.ndim() >= 2);
@@ -429,12 +493,22 @@ impl Tensor {
                 }
             }
             TensorStorage::Cuda(buf) => {
-                let out_buf = cuda_backend::cuda_transpose_2d(buf, rows, cols)
-                    .expect("CUDA transpose failed");
-                let mut new_shape = self.shape.clone();
-                let n = new_shape.len();
-                new_shape.swap(n - 1, n - 2);
-                Tensor::from_cuda_buffer(out_buf, new_shape, false)
+                if self.ndim() == 2 {
+                    // True 2D transpose — safe to use CUDA kernel.
+                    let out_buf = cuda_backend::cuda_transpose_2d(buf, rows, cols)
+                        .expect("CUDA transpose failed");
+                    let mut new_shape = self.shape.clone();
+                    let n = new_shape.len();
+                    new_shape.swap(n - 1, n - 2);
+                    Tensor::from_cuda_buffer(out_buf, new_shape, false)
+                } else {
+                    // Batched transpose (ndim > 2): cuda_transpose_2d only handles last
+                    // two dims and allocates rows*cols floats — wrong for higher-rank
+                    // tensors. Fall back: download, CPU-transpose, upload.
+                    let cpu = Tensor::from_vec(self.to_vec(), &self.shape);
+                    let transposed = cpu.t();
+                    transposed.to_device(self.device)
+                }
             }
         };
 
@@ -522,15 +596,24 @@ impl Tensor {
     /// Sum along a specific axis.
     pub fn sum_axis(&self, axis: usize) -> Tensor {
         assert!(axis < self.ndim(), "Axis out of range");
-        let data = self.to_vec();
         let mut new_shape = self.shape.clone();
         let axis_size = new_shape.remove(axis);
         if new_shape.is_empty() {
             new_shape.push(1);
         }
+
+        // ── CUDA fast path ──────────────────────────────────────────────────
+        #[cfg(feature = "cuda")]
+        if let TensorStorage::Cuda(buf) = &self.storage {
+            let out_buf = cuda_backend::cuda_sum_axis(buf, &self.shape, axis)
+                .expect("CUDA sum_axis failed");
+            return Tensor::from_cuda_buffer(out_buf, new_shape, false);
+        }
+
+        // ── CPU path ────────────────────────────────────────────────────────
+        let data = self.to_vec();
         let out_numel: usize = new_shape.iter().product();
         let mut result = vec![0.0f32; out_numel];
-
         let outer: usize = self.shape[..axis].iter().product();
         let inner: usize = self.shape[axis + 1..].iter().product();
 

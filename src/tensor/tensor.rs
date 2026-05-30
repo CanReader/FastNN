@@ -508,46 +508,108 @@ impl Tensor {
     pub fn permute(&self, dims: &[usize]) -> Tensor {
         assert_eq!(dims.len(), self.ndim());
         let new_shape: Vec<usize> = dims.iter().map(|&d| self.shape[d]).collect();
-        // For contiguous permutation, we need to physically rearrange data
+        let numel = self.numel();
+
+        // ── CUDA fast path ──────────────────────────────────────────────────
+        #[cfg(feature = "cuda")]
+        if let TensorStorage::Cuda(buf) = &self.storage {
+            use crate::tensor::cuda_backend;
+            let out_strides = compute_strides(&new_shape);
+            let out_buf = cuda_backend::cuda_permute_nd(buf, &out_strides, &self.strides, dims, numel)
+                .expect("CUDA permute_nd failed");
+            let mut result = Tensor::from_cuda_buffer(out_buf, new_shape, false);
+            result.requires_grad = self.requires_grad;
+            if crate::autograd::graph::is_grad_enabled() && self.requires_grad {
+                let grad_fn = std::sync::Arc::new(crate::autograd::backward_ops::PermuteBackward {
+                    input_ids: vec![self.id],
+                    dims: dims.to_vec(),
+                });
+                crate::autograd::graph::record_op_with_cells(
+                    grad_fn,
+                    result.id,
+                    vec![(self.id, self.grad.clone())],
+                );
+            }
+            return result;
+        }
+
+        // ── CPU path ────────────────────────────────────────────────────────
         let data = self.to_vec();
-        let total = self.numel();
-        let mut new_data = vec![0.0f32; total];
+        let mut new_data = vec![0.0f32; numel];
         let ndim = self.ndim();
         let old_strides = &self.strides;
+        let new_strides_contiguous = compute_strides(&new_shape);
 
-        for flat in 0..total {
-            // Convert flat index to multi-dim index in new layout
+        for flat in 0..numel {
             let mut remaining = flat;
-            let new_strides_contiguous = compute_strides(&new_shape);
-            let mut new_indices = vec![0usize; ndim];
-            for d in 0..ndim {
-                new_indices[d] = remaining / new_strides_contiguous[d];
-                remaining %= new_strides_contiguous[d];
-            }
-
-            // Map to old indices
             let mut old_flat = 0usize;
             for d in 0..ndim {
-                old_flat += new_indices[d] * old_strides[dims[d]];
+                let coord = remaining / new_strides_contiguous[d];
+                remaining %= new_strides_contiguous[d];
+                old_flat += coord * old_strides[dims[d]];
             }
-
             new_data[flat] = data[old_flat];
         }
 
         let mut result = Tensor::from_vec(new_data, &new_shape);
-        result.device = self.device;
         if self.is_cuda() {
             result = result.to_device(self.device);
         }
         result.requires_grad = self.requires_grad;
+
+        if crate::autograd::graph::is_grad_enabled() && self.requires_grad {
+            let grad_fn = std::sync::Arc::new(crate::autograd::backward_ops::PermuteBackward {
+                input_ids: vec![self.id],
+                dims: dims.to_vec(),
+            });
+            crate::autograd::graph::record_op_with_cells(
+                grad_fn,
+                result.id,
+                vec![(self.id, self.grad.clone())],
+            );
+        }
+
         result
     }
 
     /// Expand (broadcast) tensor to a new shape.
     pub fn expand(&self, shape: &[usize]) -> Tensor {
         assert_eq!(shape.len(), self.ndim());
+        let numel: usize = shape.iter().product();
+
+        // ── CUDA fast path: reuse permute_nd with stride=0 for broadcast dims ──
+        // Output element at coord (d0,d1,...) reads input at the same coord,
+        // but broadcast dims always read index 0 (stride=0 maps everything to 0).
+        #[cfg(feature = "cuda")]
+        if let TensorStorage::Cuda(buf) = &self.storage {
+            use crate::tensor::cuda_backend;
+            let out_strides = compute_strides(shape);
+            let in_strides: Vec<usize> = self.strides.iter().enumerate()
+                .map(|(d, &s)| if self.shape[d] == 1 { 0 } else { s })
+                .collect();
+            let perm: Vec<usize> = (0..self.ndim()).collect();
+            let out_buf = cuda_backend::cuda_permute_nd(buf, &out_strides, &in_strides, &perm, numel)
+                .expect("CUDA expand failed");
+            let mut result = Tensor::from_cuda_buffer(out_buf, shape.to_vec(), false);
+            if crate::autograd::graph::is_grad_enabled() && self.requires_grad {
+                result.requires_grad = true;
+                let grad_fn = std::sync::Arc::new(
+                    crate::autograd::backward_ops::ExpandBackward {
+                        input_ids: vec![self.id],
+                        input_shape: self.shape.clone(),
+                    }
+                );
+                crate::autograd::graph::record_op_with_cells(
+                    grad_fn, result.id,
+                    vec![(self.id, self.grad.clone())],
+                );
+            }
+            return result;
+        }
+
+        // ── CPU path ────────────────────────────────────────────────────────────
         let data = self.to_vec();
-        let total: usize = shape.iter().product();
+        let total = numel;
         let mut new_data = vec![0.0f32; total];
         let new_strides = compute_strides(shape);
 
@@ -564,6 +626,9 @@ impl Tensor {
         }
 
         let mut result = Tensor::from_vec(new_data, shape);
+        if self.is_cuda() {
+            result = result.to_device(self.device);
+        }
 
         if crate::autograd::graph::is_grad_enabled() && self.requires_grad {
             result.requires_grad = true;

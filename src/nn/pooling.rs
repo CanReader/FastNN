@@ -1,5 +1,8 @@
+use std::sync::Arc;
 use crate::tensor::Tensor;
 use crate::nn::module::Module;
+use crate::autograd::graph;
+use crate::autograd::backward_ops::{MaxPool2dBackward, AvgPool2dBackward};
 
 /// 2D Max Pooling.
 pub struct MaxPool2d {
@@ -40,29 +43,48 @@ impl Module for MaxPool2d {
 
         let data = input.to_vec();
         let mut output = vec![0.0f32; n * c * out_h * out_w];
+        let mut argmax = vec![0usize; n * c * out_h * out_w];
 
         for b in 0..n {
             for ch in 0..c {
                 for oh in 0..out_h {
                     for ow in 0..out_w {
                         let mut max_val = f32::NEG_INFINITY;
+                        let mut max_idx = 0usize;
                         for ki in 0..kh {
                             for kj in 0..kw {
                                 let ih = (oh * sh + ki) as isize - ph as isize;
                                 let iw = (ow * sw + kj) as isize - pw as isize;
                                 if ih >= 0 && ih < h as isize && iw >= 0 && iw < w as isize {
                                     let idx = ((b * c + ch) * h + ih as usize) * w + iw as usize;
-                                    max_val = max_val.max(data[idx]);
+                                    if data[idx] > max_val {
+                                        max_val = data[idx];
+                                        max_idx = idx;
+                                    }
                                 }
                             }
                         }
-                        output[((b * c + ch) * out_h + oh) * out_w + ow] = max_val;
+                        let out_idx = ((b * c + ch) * out_h + oh) * out_w + ow;
+                        output[out_idx] = max_val;
+                        argmax[out_idx] = max_idx;
                     }
                 }
             }
         }
 
-        Tensor::from_vec(output, &[n, c, out_h, out_w])
+        let mut out = Tensor::from_vec(output, &[n, c, out_h, out_w]);
+
+        if graph::is_grad_enabled() && input.requires_grad() {
+            out.set_requires_grad(true);
+            let grad_fn = Arc::new(MaxPool2dBackward {
+                input_ids: vec![input.id()],
+                input_shape: shape.to_vec(),
+                argmax,
+            });
+            graph::record_op_with_cells(grad_fn, out.id(), vec![(input.id(), input.grad_cell())]);
+        }
+
+        out
     }
 }
 
@@ -120,7 +142,21 @@ impl Module for AvgPool2d {
             }
         }
 
-        Tensor::from_vec(output, &[n, c, out_h, out_w])
+        let mut out = Tensor::from_vec(output, &[n, c, out_h, out_w]);
+
+        if graph::is_grad_enabled() && input.requires_grad() {
+            out.set_requires_grad(true);
+            let grad_fn = Arc::new(AvgPool2dBackward {
+                input_ids: vec![input.id()],
+                input_shape: shape.to_vec(),
+                kernel_size: self.kernel_size,
+                stride: self.stride,
+                padding: self.padding,
+            });
+            graph::record_op_with_cells(grad_fn, out.id(), vec![(input.id(), input.grad_cell())]);
+        }
+
+        out
     }
 }
 

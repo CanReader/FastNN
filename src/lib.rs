@@ -30,7 +30,7 @@ pub mod utils;
 pub mod prelude {
     pub use crate::tensor::{Tensor, Device};
     pub use crate::nn::{
-        Module, Sequential, Linear, Conv2d,
+        Module, Sequential, Linear, Conv2d, Flatten,
         ReLU, Sigmoid, Tanh, GELU, SiLU, LeakyReLU, Softmax,
         BatchNorm2d, LayerNorm, RMSNorm,
         Dropout,
@@ -40,7 +40,7 @@ pub mod prelude {
         Embedding,
         CrossEntropyLoss, MSELoss, BCELoss, BCEWithLogitsLoss,
     };
-    pub use crate::optim::{Optimizer, SGD, Adam, AdamW};
+    pub use crate::optim::{Optimizer, SGD, Adam, AdamW, clip_grad_norm};
     pub use crate::optim::{LRScheduler, StepLR, CosineAnnealingLR, LinearWarmup, OneCycleLR};
     pub use crate::data::{Dataset, DataLoader};
     pub use crate::autograd::{Variable, BackwardGraph};

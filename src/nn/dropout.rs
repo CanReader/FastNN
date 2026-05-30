@@ -28,7 +28,7 @@ impl Module for Dropout {
             if rng.gen::<f32>() > self.p { x * scale } else { 0.0 }
         }).collect();
 
-        Tensor::from_vec(result, input.shape())
+        Tensor::from_vec(result, input.shape()).to_device(input.device())
     }
 
     fn train(&mut self) { self.training = true; }

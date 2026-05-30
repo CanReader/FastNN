@@ -69,9 +69,6 @@ impl BackwardGraph {
         // Seed with gradient of 1.0 for the loss scalar.
         self.grads.insert(loss_id, Tensor::ones(&[1]));
 
-        // Walk the tape in reverse. Ops were appended in forward order, so reverse
-        // order gives a valid topological sort for the tree/DAG structure produced
-        // by normal forward computation.
         for node in self.nodes.iter().rev() {
             let grad_output = match self.grads.get(&node.output_id) {
                 Some(g) => g.clone(),

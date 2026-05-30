@@ -6,7 +6,15 @@ fn main() {
 
     if cfg!(feature = "cuda") {
         build_cuda();
+    } else {
+        build_cpu_stubs();
     }
+}
+
+fn build_cpu_stubs() {
+    cc::Build::new()
+        .file("cuda/stubs.c")
+        .compile("fastnn_cuda_stubs");
 }
 
 fn build_cuda() {
@@ -32,6 +40,7 @@ fn build_cuda() {
     cc::Build::new()
         .cuda(true)
         .cudart("shared")
+        .flag("-ccbin=g++-15") // GCC 16 is not yet supported by nvcc
         .flag("-gencode=arch=compute_75,code=sm_75") // Turing
         .flag("-gencode=arch=compute_80,code=sm_80") // Ampere
         .flag("-gencode=arch=compute_86,code=sm_86") // Ampere (RTX 30xx)

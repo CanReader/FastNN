@@ -1,6 +1,9 @@
 use std::collections::HashMap;
-use crate::tensor::Tensor;
+use std::sync::Arc;
+use crate::tensor::{Tensor, TensorStorage};
 use crate::nn::module::Module;
+use crate::autograd::graph;
+use crate::autograd::backward_ops::EmbeddingBackward;
 
 /// Lookup table for token embeddings.
 pub struct Embedding {
@@ -25,9 +28,41 @@ impl Embedding {
     /// indices: flat slice of token IDs.
     /// Returns: Tensor of shape [indices.len(), embedding_dim]
     pub fn forward_indices(&self, indices: &[usize]) -> Tensor {
-        let weight_data = self.weight.data();
-        let mut output = vec![0.0f32; indices.len() * self.embedding_dim];
+        let device = self.weight.device();
+        let indices_i32: Vec<i32> = indices.iter().map(|&x| x as i32).collect();
 
+        // ── CUDA fast path ──────────────────────────────────────────────────
+        #[cfg(feature = "cuda")]
+        if let TensorStorage::Cuda(w_buf) = &self.weight.storage {
+            use crate::tensor::cuda_backend;
+            let idx_buf = cuda_backend::cuda_upload_indices(&indices_i32)
+                .expect("Failed to upload embedding indices to GPU");
+            let out_buf = cuda_backend::cuda_embedding_forward(
+                &idx_buf, w_buf, indices.len(), self.embedding_dim,
+            ).expect("CUDA embedding_forward failed");
+            let mut out = Tensor::from_cuda_buffer(out_buf, vec![indices.len(), self.embedding_dim], false);
+
+            if graph::is_grad_enabled() && self.weight.requires_grad() {
+                out.set_requires_grad(true);
+                let grad_fn = Arc::new(EmbeddingBackward {
+                    input_ids: vec![self.weight.id()],
+                    indices: indices.to_vec(),
+                    indices_buf: Some(idx_buf),
+                    num_embeddings: self.num_embeddings,
+                    embedding_dim: self.embedding_dim,
+                    device,
+                });
+                graph::record_op_with_cells(
+                    grad_fn, out.id(),
+                    vec![(self.weight.id(), self.weight.grad_cell())],
+                );
+            }
+            return out;
+        }
+
+        // ── CPU path ────────────────────────────────────────────────────────
+        let weight_data = self.weight.to_vec();
+        let mut output = vec![0.0f32; indices.len() * self.embedding_dim];
         for (i, &idx) in indices.iter().enumerate() {
             assert!(idx < self.num_embeddings, "Index {} out of range (vocab size {})", idx, self.num_embeddings);
             let offset = idx * self.embedding_dim;
@@ -35,7 +70,26 @@ impl Embedding {
                 .copy_from_slice(&weight_data[offset..offset + self.embedding_dim]);
         }
 
-        Tensor::from_vec(output, &[indices.len(), self.embedding_dim])
+        let mut out = Tensor::from_vec(output, &[indices.len(), self.embedding_dim])
+            .to_device(device);
+
+        if graph::is_grad_enabled() && self.weight.requires_grad() {
+            out.set_requires_grad(true);
+            let grad_fn = Arc::new(EmbeddingBackward {
+                input_ids: vec![self.weight.id()],
+                indices: indices.to_vec(),
+                indices_buf: None,
+                num_embeddings: self.num_embeddings,
+                embedding_dim: self.embedding_dim,
+                device,
+            });
+            graph::record_op_with_cells(
+                grad_fn, out.id(),
+                vec![(self.weight.id(), self.weight.grad_cell())],
+            );
+        }
+
+        out
     }
 
     /// Forward pass with a tensor of indices.
@@ -62,10 +116,18 @@ impl Module for Embedding {
         vec![self.weight.clone()]
     }
 
+    fn parameters_mut(&mut self) -> Vec<&mut Tensor> {
+        vec![&mut self.weight]
+    }
+
     fn named_parameters(&self) -> HashMap<String, Tensor> {
         let mut params = HashMap::new();
         params.insert("weight".to_string(), self.weight.clone());
         params
+    }
+
+    fn to_device(&mut self, device: crate::tensor::Device) {
+        self.weight = self.weight.to_device(device);
     }
 }
 

@@ -111,4 +111,11 @@ impl Module for Linear {
         }
         params
     }
+
+    fn to_device(&mut self, device: crate::tensor::Device) {
+        self.weight = self.weight.to_device(device);
+        if let Some(ref mut b) = self.bias {
+            *b = b.to_device(device);
+        }
+    }
 }

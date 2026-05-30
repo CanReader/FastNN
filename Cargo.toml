@@ -52,6 +52,14 @@ path = "examples/transformer.rs"
 name = "simple_mlp"
 path = "examples/simple_mlp.rs"
 
+[[example]]
+name = "mnist_cnn"
+path = "examples/mnist_cnn.rs"
+
+[[example]]
+name = "char_lm"
+path = "examples/char_lm.rs"
+
 [[bench]]
 name = "tensor_ops"
 harness = false

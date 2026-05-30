@@ -22,6 +22,8 @@ impl CrossEntropyLoss {
         let (batch_size, num_classes) = (shape[0], shape[1]);
         assert_eq!(targets.len(), batch_size);
 
+        let device = logits.device();
+
         // Compute softmax and log-softmax in one pass (numerically stable).
         let data = logits.to_vec();
         let mut softmax = vec![0.0f32; batch_size * num_classes];
@@ -42,8 +44,9 @@ impl CrossEntropyLoss {
         }
         loss /= batch_size as f32;
 
-        let softmax_t = Tensor::from_vec(softmax, &[batch_size, num_classes]);
-        let mut out = Tensor::from_vec(vec![loss], &[1]);
+        // Move softmax and out to logits device BEFORE recording so that ids remain consistent.
+        let softmax_t = Tensor::from_vec(softmax, &[batch_size, num_classes]).to_device(device);
+        let mut out = Tensor::from_vec(vec![loss], &[1]).to_device(device);
 
         // Record autograd node if tracking active and logits need grad.
         if graph::is_grad_enabled() && logits.requires_grad() {
@@ -54,6 +57,7 @@ impl CrossEntropyLoss {
                 targets: targets.to_vec(),
                 batch_size,
                 num_classes,
+                device,
             });
             graph::record_op_with_cells(
                 grad_fn,
@@ -61,7 +65,6 @@ impl CrossEntropyLoss {
                 vec![(logits.id(), logits.grad_cell())],
             );
         }
-
         out
     }
 

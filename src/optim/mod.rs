@@ -8,6 +8,29 @@ pub use scheduler::{LRScheduler, StepLR, CosineAnnealingLR, LinearWarmup, OneCyc
 
 use crate::tensor::Tensor;
 
+/// Clips the global L2 norm of all parameter gradients to `max_norm`.
+/// Returns the pre-clipping norm. Call this between `backward()` and `step()`.
+pub fn clip_grad_norm(params: &[&mut Tensor], max_norm: f32) -> f32 {
+    let total_norm: f32 = params.iter()
+        .filter_map(|p| p.grad())
+        .flat_map(|g| g.to_vec())
+        .map(|x| x * x)
+        .sum::<f32>()
+        .sqrt();
+
+    if total_norm > max_norm {
+        let scale = max_norm / (total_norm + 1e-6);
+        for p in params.iter() {
+            if let Some(g) = p.grad() {
+                let shape = g.shape().to_vec();
+                let scaled: Vec<f32> = g.to_vec().iter().map(|&x| x * scale).collect();
+                p.set_grad(Tensor::from_vec(scaled, &shape));
+            }
+        }
+    }
+    total_norm
+}
+
 /// Trait for all optimizers.
 ///
 /// Optimizers read `.grad()` from each parameter (populated by `loss.backward()`)

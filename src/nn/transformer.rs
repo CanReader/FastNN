@@ -1,6 +1,36 @@
-use crate::tensor::Tensor;
+use std::collections::HashMap;
+use std::cell::RefCell;
+use crate::tensor::{Tensor, Device};
 use crate::nn::module::Module;
 use crate::nn::{Linear, LayerNorm, Dropout};
+
+// Per-thread cache for causal masks — keyed by (n, seq_q, seq_k, device).
+// Masks are identical across steps for fixed batch/heads/seq, so we compute
+// once and reuse. Using thread-local avoids any locking overhead.
+thread_local! {
+    static CAUSAL_MASK_CACHE: RefCell<HashMap<(usize, usize, usize, usize), Tensor>> =
+        RefCell::new(HashMap::new());
+}
+
+fn get_causal_mask(n: usize, seq_q: usize, seq_k: usize, device: Device) -> Tensor {
+    // Device as usize key: CPU=0, Cuda(id)=id+1
+    let dev_key = match device { Device::Cpu => 0, Device::Cuda(id) => id + 1 };
+    CAUSAL_MASK_CACHE.with(|cache| {
+        let mut map = cache.borrow_mut();
+        map.entry((n, seq_q, seq_k, dev_key))
+            .or_insert_with(|| {
+                let mask_data: Vec<f32> = (0..(n * seq_q * seq_k))
+                    .map(|idx| {
+                        let qi = (idx / seq_k) % seq_q;
+                        let ki = idx % seq_k;
+                        if ki > qi { -1e9 } else { 0.0 }
+                    })
+                    .collect();
+                Tensor::from_vec(mask_data, &[n, seq_q, seq_k]).to_device(device)
+            })
+            .clone()
+    })
+}
 
 /// Multi-Head Attention mechanism.
 pub struct MultiHeadAttention {
@@ -64,19 +94,12 @@ impl MultiHeadAttention {
         let scores = q_flat.matmul(&k_t_flat).mul_scalar(self.scale);
         // scores: [batch*heads, seq_q, seq_k]
 
-        // Apply causal mask
+        // Apply causal mask via additive bias (preserves gradient graph).
+        // Mask is identical for fixed (batch, heads, seq) so we cache it.
         let scores = if causal {
-            let mut score_data = scores.to_vec();
-            for bh in 0..(batch * self.num_heads) {
-                for qi in 0..seq_len_q {
-                    for ki in 0..seq_len_k {
-                        if ki > qi {
-                            score_data[(bh * seq_len_q + qi) * seq_len_k + ki] = f32::NEG_INFINITY;
-                        }
-                    }
-                }
-            }
-            Tensor::from_vec(score_data, scores.shape())
+            let n = batch * self.num_heads;
+            let mask = get_causal_mask(n, seq_len_q, seq_len_k, scores.device());
+            scores.add(&mask)
         } else {
             scores
         };
@@ -105,7 +128,6 @@ impl MultiHeadAttention {
 
 impl Module for MultiHeadAttention {
     fn forward(&self, input: &Tensor) -> Tensor {
-        // Self-attention: Q=K=V=input
         self.forward_attn(input, input, input, false)
     }
 
@@ -116,6 +138,22 @@ impl Module for MultiHeadAttention {
         params.extend(self.v_proj.parameters());
         params.extend(self.out_proj.parameters());
         params
+    }
+
+    fn parameters_mut(&mut self) -> Vec<&mut Tensor> {
+        let mut params = Vec::new();
+        params.extend(self.q_proj.parameters_mut());
+        params.extend(self.k_proj.parameters_mut());
+        params.extend(self.v_proj.parameters_mut());
+        params.extend(self.out_proj.parameters_mut());
+        params
+    }
+
+    fn to_device(&mut self, device: crate::tensor::Device) {
+        self.q_proj.to_device(device);
+        self.k_proj.to_device(device);
+        self.v_proj.to_device(device);
+        self.out_proj.to_device(device);
     }
 }
 
@@ -156,7 +194,6 @@ impl TransformerEncoderLayer {
 
 impl Module for TransformerEncoderLayer {
     fn forward(&self, input: &Tensor) -> Tensor {
-        // Pre-LN Transformer: norm -> attn -> residual -> norm -> ffn -> residual
         let normed = self.norm1.forward(input);
         let attn_out = self.self_attn.forward_attn(&normed, &normed, &normed, false);
         let x = input.add(&self.dropout.forward(&attn_out));
@@ -179,6 +216,24 @@ impl Module for TransformerEncoderLayer {
         params.extend(self.norm1.parameters());
         params.extend(self.norm2.parameters());
         params
+    }
+
+    fn parameters_mut(&mut self) -> Vec<&mut Tensor> {
+        let mut params = Vec::new();
+        params.extend(self.self_attn.parameters_mut());
+        params.extend(self.linear1.parameters_mut());
+        params.extend(self.linear2.parameters_mut());
+        params.extend(self.norm1.parameters_mut());
+        params.extend(self.norm2.parameters_mut());
+        params
+    }
+
+    fn to_device(&mut self, device: crate::tensor::Device) {
+        self.self_attn.to_device(device);
+        self.linear1.to_device(device);
+        self.linear2.to_device(device);
+        self.norm1.to_device(device);
+        self.norm2.to_device(device);
     }
 }
 
@@ -216,5 +271,21 @@ impl Module for TransformerEncoder {
         }
         params.extend(self.norm.parameters());
         params
+    }
+
+    fn parameters_mut(&mut self) -> Vec<&mut Tensor> {
+        let mut params = Vec::new();
+        for layer in &mut self.layers {
+            params.extend(layer.parameters_mut());
+        }
+        params.extend(self.norm.parameters_mut());
+        params
+    }
+
+    fn to_device(&mut self, device: crate::tensor::Device) {
+        for layer in &mut self.layers {
+            layer.to_device(device);
+        }
+        self.norm.to_device(device);
     }
 }
