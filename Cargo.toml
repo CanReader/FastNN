@@ -27,7 +27,7 @@ flate2 = "1.0"      # dataset decompression
 cc = { version = "1.0", features = ["parallel"] }
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 
 [features]
 default = []
