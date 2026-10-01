@@ -1,0 +1,24 @@
+name: GPU
+
+# Hosted runners have no GPU, so this runs on a self-hosted machine with one,
+# labelled `gpu`. It is manual only: a self-hosted runner on a public repo must
+# never pick up code from a fork's pull request.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  parity:
+    name: CUDA parity
+    runs-on: [self-hosted, linux, gpu]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - run: nvidia-smi
+      - run: cargo test --release --features cuda --test cuda_parity -- --test-threads=1
+      - run: cargo test --release --features cuda
