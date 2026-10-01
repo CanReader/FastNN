@@ -4,79 +4,144 @@ on:
   push:
     branches: [master]
   pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch makes the older run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  # The default build is CPU-only, so runners need no CUDA toolkit; the full
-  # finite-difference gradient-check suite exercises the CPU maths, and the
-  # kernels are checked against it locally by tests/cuda_parity.rs.
-  cpu:
+  fmt:
+    name: Format
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: rustfmt
+      - run: cargo fmt --all --check
 
-      - name: Cache cargo
-        uses: actions/cache@v4
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets -- -D warnings
 
-      - name: Build (CPU-only)
-        run: cargo build --all-targets
+  # The default build is CPU-only, so every OS can run the whole suite,
+  # gradcheck included. The kernels are covered by the cuda job below and by
+  # tests/cuda_parity.rs on a machine with a GPU.
+  test:
+    name: Test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Linux, os: ubuntu-latest }
+          - { name: macOS, os: macos-latest }
+          - { name: Windows, os: windows-latest }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test
 
-      - name: Gradient checks (finite difference)
-        run: cargo test --test gradcheck -- --nocapture
+  # Cargo.lock is not committed, so the fallback resolver is what keeps a
+  # dependency that raised its own MSRV from failing this job for no reason
+  # of ours.
+  msrv:
+    name: MSRV (1.87)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.87
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --all-targets
 
-      - name: Robustness (resume, anomalies, freezing)
-        run: cargo test --test robustness
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --no-deps
 
-      - name: Generation (kv cache, sampling)
-        run: cargo test --test generation
-
-      - name: Unit + integration tests
-        run: cargo test
-
-      - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+  # Builds the crate from the files that would actually be uploaded, so a
+  # missing `exclude` or a file outside the package fails here and not on
+  # publish day.
+  package:
+    name: Package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo package
 
   # Hosted runners have no GPU, so the kernels cannot run here. They still
   # compile: nvcc parses kernels.cu, the linker resolves every FFI symbol
   # against the real libraries, and a signature drift between ffi.rs and the
   # kernels fails in CI instead of on the next machine with a GPU. The parity
   # suite notices there is no device at runtime and skips itself.
-  cuda-build:
+  cuda:
+    name: CUDA build
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       # No version pin: the action's default tracks what the runner image can
       # actually install, and any recent nvcc compiles these kernels.
-      - name: Install CUDA toolkit (no driver, compile only)
+      - name: Install CUDA toolkit (compile only, no driver)
         uses: Jimver/cuda-toolkit@v0.2.36
         with:
-          method: 'network'
+          method: network
 
-      - name: Cache cargo
-        uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-cuda-${{ hashFiles('**/Cargo.lock') }}
+          key: cuda
 
-      - name: Build with the cuda feature
-        run: cargo build --features cuda --all-targets
-
-      - name: Parity tests (self-skip without a device)
+      - run: cargo build --features cuda --all-targets
+      - run: cargo clippy --features cuda --all-targets -- -D warnings
+      - name: Parity tests (skip themselves without a device)
         run: cargo test --features cuda --test cuda_parity -- --test-threads=1
+
+  # The one check branch protection requires. Jobs can be renamed or added
+  # here without touching the repository settings.
+  ci-passed:
+    name: CI passed
+    if: always()
+    needs: [fmt, clippy, test, msrv, docs, package, cuda]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail if any job did not succeed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: exit 1
+      - run: echo "All jobs passed."
