@@ -1,5 +1,7 @@
 # FastNN
 
+[![CI](https://github.com/CanReader/FastNN/actions/workflows/ci.yml/badge.svg)](https://github.com/CanReader/FastNN/actions/workflows/ci.yml)
+
 A deep learning library in Rust, with CUDA kernels for the parts that matter.
 
 Tensors with autograd, the usual layers, optimizers, losses, data loading,
@@ -327,6 +329,11 @@ a training step creates cost a hash lookup instead of a driver round trip.
   for long ones.
 - Tensors are always contiguous. `permute` and `expand` write a new buffer rather
   than returning a strided view.
+
+## Contributing
+
+Bug reports and PRs are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for how
+the code is laid out, what CI checks, and how to add an op.
 
 ## License
 
