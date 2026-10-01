@@ -103,7 +103,9 @@ pub fn load_safetensors_renamed(
     // Index by the *effective* name: the mapping applied to the file's keys.
     let mut by_name: HashMap<&str, &Entry> = HashMap::new();
     for entry in &entries {
-        let effective = rename.get(&entry.name).map_or(entry.name.as_str(), String::as_str);
+        let effective = rename
+            .get(&entry.name)
+            .map_or(entry.name.as_str(), String::as_str);
         by_name.insert(effective, entry);
     }
 
@@ -129,16 +131,22 @@ pub fn load_safetensors_renamed(
 
     for (name, param) in module.named_parameters() {
         let shape = param.shape();
-        fill(name, shape, &mut |tensor| param.set_value(tensor.to(param.device())))?;
+        fill(name, shape, &mut |tensor| {
+            param.set_value(tensor.to(param.device()))
+        })?;
     }
     for (name, buffer) in module.named_buffers() {
         let device = buffer.value().device();
         let shape = buffer.value().shape().to_vec();
-        fill(name, shape, &mut |tensor| buffer.set_value(tensor.to(device)))?;
+        fill(name, shape, &mut |tensor| {
+            buffer.set_value(tensor.to(device))
+        })?;
     }
 
     for entry in &entries {
-        let effective = rename.get(&entry.name).map_or(entry.name.as_str(), String::as_str);
+        let effective = rename
+            .get(&entry.name)
+            .map_or(entry.name.as_str(), String::as_str);
         if !used.contains(&effective) {
             report.unexpected.push(entry.name.clone());
         }
@@ -206,8 +214,8 @@ fn parse_file(bytes: &[u8]) -> Result<(Vec<Entry>, &[u8])> {
     let Some(data_start) = header_len.checked_add(8).filter(|&end| end <= bytes.len()) else {
         return Err(bad(format!("header length {header_len} exceeds the file")));
     };
-    let header = std::str::from_utf8(&bytes[8..data_start])
-        .map_err(|_| bad("header is not valid UTF-8"))?;
+    let header =
+        std::str::from_utf8(&bytes[8..data_start]).map_err(|_| bad("header is not valid UTF-8"))?;
     let data = &bytes[data_start..];
 
     let entries = Header::new(header).parse()?;
@@ -219,7 +227,10 @@ fn parse_file(bytes: &[u8]) -> Result<(Vec<Entry>, &[u8])> {
             .try_fold(1usize, |acc, &d| acc.checked_mul(d))
             .ok_or_else(|| bad(format!("'{}' has an overflowing shape", entry.name)))?;
         if start > end || end > data.len() {
-            return Err(bad(format!("'{}' points outside the data section", entry.name)));
+            return Err(bad(format!(
+                "'{}' points outside the data section",
+                entry.name
+            )));
         }
         if end - start != numel * entry.dtype.bytes() {
             return Err(bad(format!(
@@ -245,7 +256,10 @@ struct Header<'a> {
 
 impl<'a> Header<'a> {
     fn new(text: &'a str) -> Header<'a> {
-        Header { bytes: text.as_bytes(), pos: 0 }
+        Header {
+            bytes: text.as_bytes(),
+            pos: 0,
+        }
     }
 
     fn parse(mut self) -> Result<Vec<Entry>> {
@@ -266,7 +280,12 @@ impl<'a> Header<'a> {
             match self.next()? {
                 b',' => continue,
                 b'}' => return Ok(entries),
-                other => return Err(bad(format!("expected ',' or '}}', found '{}'", other as char))),
+                other => {
+                    return Err(bad(format!(
+                        "expected ',' or '}}', found '{}'",
+                        other as char
+                    )))
+                }
             }
         }
     }
@@ -286,8 +305,8 @@ impl<'a> Header<'a> {
                         "BF16" => Dtype::Bf16,
                         other => {
                             return Err(bad(format!(
-                                "'{name}' has dtype {other}, and only F32/F16/BF16 load into f32 storage"
-                            )))
+                        "'{name}' has dtype {other}, and only F32/F16/BF16 load into f32 storage"
+                    )))
                         }
                     })
                 }
@@ -304,12 +323,24 @@ impl<'a> Header<'a> {
             match self.next()? {
                 b',' => continue,
                 b'}' => break,
-                other => return Err(bad(format!("expected ',' or '}}', found '{}'", other as char))),
+                other => {
+                    return Err(bad(format!(
+                        "expected ',' or '}}', found '{}'",
+                        other as char
+                    )))
+                }
             }
         }
         match (dtype, shape, offsets) {
-            (Some(dtype), Some(shape), Some(offsets)) => Ok(Entry { name, dtype, shape, offsets }),
-            _ => Err(bad(format!("'{name}' is missing dtype, shape, or data_offsets"))),
+            (Some(dtype), Some(shape), Some(offsets)) => Ok(Entry {
+                name,
+                dtype,
+                shape,
+                offsets,
+            }),
+            _ => Err(bad(format!(
+                "'{name}' is missing dtype, shape, or data_offsets"
+            ))),
         }
     }
 
@@ -326,7 +357,12 @@ impl<'a> Header<'a> {
             match self.next()? {
                 b',' => continue,
                 b']' => return Ok(values),
-                other => return Err(bad(format!("expected ',' or ']', found '{}'", other as char))),
+                other => {
+                    return Err(bad(format!(
+                        "expected ',' or ']', found '{}'",
+                        other as char
+                    )))
+                }
             }
         }
     }
@@ -424,7 +460,12 @@ impl<'a> Header<'a> {
             match self.next()? {
                 b',' => continue,
                 b'}' => return Ok(()),
-                other => return Err(bad(format!("expected ',' or '}}', found '{}'", other as char))),
+                other => {
+                    return Err(bad(format!(
+                        "expected ',' or '}}', found '{}'",
+                        other as char
+                    )))
+                }
             }
         }
     }
@@ -437,7 +478,10 @@ impl<'a> Header<'a> {
 
     fn peek(&mut self) -> Result<u8> {
         self.skip_whitespace();
-        self.bytes.get(self.pos).copied().ok_or_else(|| bad("header ended early"))
+        self.bytes
+            .get(self.pos)
+            .copied()
+            .ok_or_else(|| bad("header ended early"))
     }
 
     fn next(&mut self) -> Result<u8> {
@@ -448,7 +492,11 @@ impl<'a> Header<'a> {
 
     /// The next byte with no whitespace skipping — inside strings, spaces count.
     fn raw_byte(&mut self) -> Result<u8> {
-        let byte = self.bytes.get(self.pos).copied().ok_or_else(|| bad("header ended early"))?;
+        let byte = self
+            .bytes
+            .get(self.pos)
+            .copied()
+            .ok_or_else(|| bad("header ended early"))?;
         self.pos += 1;
         Ok(byte)
     }
@@ -456,7 +504,10 @@ impl<'a> Header<'a> {
     fn expect(&mut self, wanted: u8) -> Result<()> {
         let got = self.next()?;
         if got != wanted {
-            return Err(bad(format!("expected '{}', found '{}'", wanted as char, got as char)));
+            return Err(bad(format!(
+                "expected '{}', found '{}'",
+                wanted as char, got as char
+            )));
         }
         Ok(())
     }

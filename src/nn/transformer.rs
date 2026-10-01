@@ -45,13 +45,37 @@ pub struct TransformerBlock {
 
 impl TransformerBlock {
     /// An encoder block: every position sees every other.
-    pub fn encoder(model_dim: usize, heads: usize, hidden_dim: usize, dropout: f32) -> TransformerBlock {
-        TransformerBlock::new(model_dim, heads, hidden_dim, dropout, Activation::GELU, false)
+    pub fn encoder(
+        model_dim: usize,
+        heads: usize,
+        hidden_dim: usize,
+        dropout: f32,
+    ) -> TransformerBlock {
+        TransformerBlock::new(
+            model_dim,
+            heads,
+            hidden_dim,
+            dropout,
+            Activation::GELU,
+            false,
+        )
     }
 
     /// A decoder block: each position sees only itself and what came before.
-    pub fn causal(model_dim: usize, heads: usize, hidden_dim: usize, dropout: f32) -> TransformerBlock {
-        TransformerBlock::new(model_dim, heads, hidden_dim, dropout, Activation::GELU, true)
+    pub fn causal(
+        model_dim: usize,
+        heads: usize,
+        hidden_dim: usize,
+        dropout: f32,
+    ) -> TransformerBlock {
+        TransformerBlock::new(
+            model_dim,
+            heads,
+            hidden_dim,
+            dropout,
+            Activation::GELU,
+            true,
+        )
     }
 
     pub fn new(
@@ -79,7 +103,9 @@ impl TransformerBlock {
     /// sequences attends only to its own content.
     pub fn forward_masked(&self, input: &Tensor, key_mask: Option<&Tensor>) -> Tensor {
         let normed = self.norm_attention.forward(input);
-        let attended = self.attention.attend_masked(&normed, &normed, &normed, self.causal, key_mask);
+        let attended =
+            self.attention
+                .attend_masked(&normed, &normed, &normed, self.causal, key_mask);
         let residual = input.add(&self.dropout.forward(&attended));
 
         let normed = self.norm_feedforward.forward(&residual);
@@ -93,7 +119,10 @@ impl TransformerBlock {
     /// Inference-only — dropout is skipped — and causal by nature: a cache only
     /// makes sense when later tokens cannot change earlier ones.
     pub fn forward_cached(&self, input: &Tensor, cache: &mut KvCache) -> Tensor {
-        assert!(self.causal, "kv-cached decoding needs a causal block; this one is an encoder");
+        assert!(
+            self.causal,
+            "kv-cached decoding needs a causal block; this one is an encoder"
+        );
 
         let normed = self.norm_attention.forward(input);
         let residual = input.add(&self.attention.attend_cached(&normed, cache));
@@ -111,8 +140,14 @@ impl Module for TransformerBlock {
 
     fn named_parameters(&self) -> Vec<(String, Param)> {
         let mut params = scoped("attention", self.attention.named_parameters());
-        params.extend(scoped("norm_attention", self.norm_attention.named_parameters()));
-        params.extend(scoped("norm_feedforward", self.norm_feedforward.named_parameters()));
+        params.extend(scoped(
+            "norm_attention",
+            self.norm_attention.named_parameters(),
+        ));
+        params.extend(scoped(
+            "norm_feedforward",
+            self.norm_feedforward.named_parameters(),
+        ));
         params.extend(scoped("up", self.up.named_parameters()));
         params.extend(scoped("down", self.down.named_parameters()));
         params
@@ -132,20 +167,36 @@ pub struct TransformerStack {
 
 impl TransformerStack {
     /// A bidirectional encoder stack.
-    pub fn encoder(model_dim: usize, heads: usize, hidden_dim: usize, layers: usize, dropout: f32) -> TransformerStack {
+    pub fn encoder(
+        model_dim: usize,
+        heads: usize,
+        hidden_dim: usize,
+        layers: usize,
+        dropout: f32,
+    ) -> TransformerStack {
         TransformerStack::build(layers, model_dim, || {
             TransformerBlock::encoder(model_dim, heads, hidden_dim, dropout)
         })
     }
 
     /// A causal decoder stack, as used by GPT-style language models.
-    pub fn causal(model_dim: usize, heads: usize, hidden_dim: usize, layers: usize, dropout: f32) -> TransformerStack {
+    pub fn causal(
+        model_dim: usize,
+        heads: usize,
+        hidden_dim: usize,
+        layers: usize,
+        dropout: f32,
+    ) -> TransformerStack {
         TransformerStack::build(layers, model_dim, || {
             TransformerBlock::causal(model_dim, heads, hidden_dim, dropout)
         })
     }
 
-    fn build(layers: usize, model_dim: usize, block: impl Fn() -> TransformerBlock) -> TransformerStack {
+    fn build(
+        layers: usize,
+        model_dim: usize,
+        block: impl Fn() -> TransformerBlock,
+    ) -> TransformerStack {
         TransformerStack {
             blocks: (0..layers).map(|_| block()).collect(),
             norm: LayerNorm::new(model_dim),
@@ -181,14 +232,19 @@ impl TransformerStack {
             .blocks
             .iter()
             .zip(&mut cache.layers)
-            .fold(input.clone(), |x, (block, layer)| block.forward_cached(&x, layer));
+            .fold(input.clone(), |x, (block, layer)| {
+                block.forward_cached(&x, layer)
+            });
         self.norm.forward(&hidden)
     }
 }
 
 impl Module for TransformerStack {
     fn forward(&self, input: &Tensor) -> Tensor {
-        let hidden = self.blocks.iter().fold(input.clone(), |x, block| block.forward(&x));
+        let hidden = self
+            .blocks
+            .iter()
+            .fold(input.clone(), |x, block| block.forward(&x));
         self.norm.forward(&hidden)
     }
 

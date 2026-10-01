@@ -19,7 +19,11 @@ impl fmt::Debug for Tensor {
             "Tensor{:?} on {}{}",
             self.shape(),
             self.device(),
-            if self.grad_fn().is_some() { ", tracked" } else { "" }
+            if self.grad_fn().is_some() {
+                ", tracked"
+            } else {
+                ""
+            }
         )
     }
 }

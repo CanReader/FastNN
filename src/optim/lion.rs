@@ -33,7 +33,15 @@ pub struct Lion {
 impl Lion {
     pub fn new(params: Vec<Param>, lr: f32) -> Lion {
         let n = params.len();
-        Lion { params, momentum: vec![None; n], lr, beta1: 0.9, beta2: 0.99, weight_decay: 0.0, steps: 0 }
+        Lion {
+            params,
+            momentum: vec![None; n],
+            lr,
+            beta1: 0.9,
+            beta2: 0.99,
+            weight_decay: 0.0,
+            steps: 0,
+        }
     }
 
     pub fn betas(mut self, beta1: f32, beta2: f32) -> Lion {
@@ -120,9 +128,18 @@ mod tests {
         opt.step();
 
         let values = param.value().to_vec();
-        assert!((values[0] - -0.01).abs() < 1e-6, "tiny gradient still steps full size");
-        assert!((values[1] - -0.01).abs() < 1e-6, "huge gradient steps the same size");
-        assert!((values[2] - 0.01).abs() < 1e-6, "negative gradient steps the other way");
+        assert!(
+            (values[0] - -0.01).abs() < 1e-6,
+            "tiny gradient still steps full size"
+        );
+        assert!(
+            (values[1] - -0.01).abs() < 1e-6,
+            "huge gradient steps the same size"
+        );
+        assert!(
+            (values[2] - 0.01).abs() < 1e-6,
+            "negative gradient steps the other way"
+        );
     }
 
     /// A zero gradient with zero momentum moves nothing: sign(0) = 0.

@@ -12,16 +12,29 @@ use crate::tensor::Tensor;
 /// the numerically dangerous `log(exp(...))` never appears and a confidently
 /// wrong prediction yields a large finite loss instead of infinity.
 pub fn cross_entropy(logits: &Tensor, targets: &[usize]) -> Tensor {
-    assert_eq!(logits.ndim(), 2, "cross_entropy expects [batch, classes], got {:?}", logits.shape());
+    assert_eq!(
+        logits.ndim(),
+        2,
+        "cross_entropy expects [batch, classes], got {:?}",
+        logits.shape()
+    );
     let (batch, classes) = (logits.dim(0), logits.dim(1));
-    assert_eq!(targets.len(), batch, "cross_entropy: {} targets for {batch} rows", targets.len());
+    assert_eq!(
+        targets.len(),
+        batch,
+        "cross_entropy: {} targets for {batch} rows",
+        targets.len()
+    );
 
     let data = logits.to_vec();
     let mut softmax = vec![0.0f32; batch * classes];
     let mut total = 0.0f32;
 
     for (row, &target) in targets.iter().enumerate() {
-        assert!(target < classes, "cross_entropy: target {target} outside 0..{classes}");
+        assert!(
+            target < classes,
+            "cross_entropy: target {target} outside 0..{classes}"
+        );
         let base = row * classes;
         let values = &data[base..base + classes];
 
@@ -38,7 +51,11 @@ pub fn cross_entropy(logits: &Tensor, targets: &[usize]) -> Tensor {
     let targets = targets.to_vec();
     Tensor::scalar(total / batch as f32)
         .to(logits.device())
-        .with_grad(&[logits], || CrossEntropyBackward { softmax: saved, targets, classes })
+        .with_grad(&[logits], || CrossEntropyBackward {
+            softmax: saved,
+            targets,
+            classes,
+        })
 }
 
 /// Mean squared error.
@@ -60,7 +77,10 @@ pub fn bce(prediction: &Tensor, target: &Tensor) -> Tensor {
     const EDGE: f32 = 1e-7;
     let p = prediction.clamp(EDGE, 1.0 - EDGE);
     let positive = target.mul(&p.log());
-    let negative = target.neg().add_scalar(1.0).mul(&p.neg().add_scalar(1.0).log());
+    let negative = target
+        .neg()
+        .add_scalar(1.0)
+        .mul(&p.neg().add_scalar(1.0).log());
     positive.add(&negative).neg().mean()
 }
 
@@ -104,7 +124,10 @@ pub fn smooth_l1(prediction: &Tensor, target: &Tensor) -> Tensor {
 pub fn gaussian_nll(mean: &Tensor, log_variance: &Tensor, target: &Tensor) -> Tensor {
     let squared_error = target.sub(mean).square();
     let precision = log_variance.neg().exp();
-    log_variance.add(&squared_error.mul(&precision)).mul_scalar(0.5).mean()
+    log_variance
+        .add(&squared_error.mul(&precision))
+        .mul_scalar(0.5)
+        .mean()
 }
 
 /// Negative log-likelihood of a Poisson with predicted log-rate, per element:
@@ -135,17 +158,29 @@ pub fn kl_divergence(prediction: &Tensor, target: &Tensor) -> Tensor {
 /// needed elsewhere too.
 pub fn nll(log_probs: &Tensor, targets: &[usize]) -> Tensor {
     let (batch, classes) = (log_probs.dim(0), log_probs.dim(1));
-    assert_eq!(batch, targets.len(), "nll: {batch} rows but {} targets", targets.len());
+    assert_eq!(
+        batch,
+        targets.len(),
+        "nll: {batch} rows but {} targets",
+        targets.len()
+    );
 
     // Selecting one entry per row is a dot with the one-hot targets — a
     // constant, so the graph reaches only the log-probabilities.
     let mut one_hot = vec![0.0f32; batch * classes];
     for (row, &target) in targets.iter().enumerate() {
-        assert!(target < classes, "nll: target {target} outside 0..{classes}");
+        assert!(
+            target < classes,
+            "nll: target {target} outside 0..{classes}"
+        );
         one_hot[row * classes + target] = 1.0;
     }
     let selector = Tensor::from_vec(one_hot, &[batch, classes]).to(log_probs.device());
-    log_probs.mul(&selector).sum().div_scalar(batch as f32).neg()
+    log_probs
+        .mul(&selector)
+        .sum()
+        .div_scalar(batch as f32)
+        .neg()
 }
 
 // ── Classification under imbalance ───────────────────────────────────────────
@@ -181,7 +216,11 @@ pub fn focal_bce_with_logits(logits: &Tensor, target: &Tensor, gamma: f32, alpha
 /// when cross-entropy collapses to "predict background everywhere".
 pub fn dice(prediction: &Tensor, target: &Tensor) -> Tensor {
     const SMOOTH: f32 = 1.0;
-    let intersection = prediction.mul(target).sum().mul_scalar(2.0).add_scalar(SMOOTH);
+    let intersection = prediction
+        .mul(target)
+        .sum()
+        .mul_scalar(2.0)
+        .add_scalar(SMOOTH);
     let total = prediction.sum().add(&target.sum()).add_scalar(SMOOTH);
     intersection.div(&total).neg().add_scalar(1.0)
 }
@@ -235,7 +274,10 @@ impl CrossEntropyLoss {
 
     /// Blend `s` of the probability mass uniformly across classes.
     pub fn label_smoothing(mut self, s: f32) -> CrossEntropyLoss {
-        assert!((0.0..1.0).contains(&s), "label smoothing must be in [0, 1), got {s}");
+        assert!(
+            (0.0..1.0).contains(&s),
+            "label smoothing must be in [0, 1), got {s}"
+        );
         self.label_smoothing = s;
         self
     }
@@ -260,11 +302,26 @@ impl CrossEntropyLoss {
     /// `[batch, classes]` logits and one target per row → the reduced loss
     /// (or `[batch]` under [`Reduction::None`]).
     pub fn compute(&self, logits: &Tensor, targets: &[usize]) -> Tensor {
-        assert_eq!(logits.ndim(), 2, "cross entropy expects [batch, classes], got {:?}", logits.shape());
+        assert_eq!(
+            logits.ndim(),
+            2,
+            "cross entropy expects [batch, classes], got {:?}",
+            logits.shape()
+        );
         let (batch, classes) = (logits.dim(0), logits.dim(1));
-        assert_eq!(batch, targets.len(), "{batch} rows but {} targets", targets.len());
+        assert_eq!(
+            batch,
+            targets.len(),
+            "{batch} rows but {} targets",
+            targets.len()
+        );
         if let Some(weights) = &self.class_weights {
-            assert_eq!(weights.len(), classes, "{} class weights for {classes} classes", weights.len());
+            assert_eq!(
+                weights.len(),
+                classes,
+                "{} class weights for {classes} classes",
+                weights.len()
+            );
         }
 
         let data = logits.to_vec();
@@ -306,7 +363,11 @@ impl CrossEntropyLoss {
             Reduction::Mean => {
                 // An all-ignored batch has nothing to average; 0 with a zero
                 // gradient is the only answer that does not poison the run.
-                let denominator = if weight_total > 0.0 { weight_total } else { 1.0 };
+                let denominator = if weight_total > 0.0 {
+                    weight_total
+                } else {
+                    1.0
+                };
                 let total: f32 = per_row.iter().sum();
                 (Tensor::scalar(total / denominator), denominator, false)
             }
@@ -314,11 +375,13 @@ impl CrossEntropyLoss {
             Reduction::None => (Tensor::from_vec(per_row, &[batch]), 1.0, true),
         };
 
-        value.to(logits.device()).with_grad(&[logits], || WeightedCrossEntropyBackward {
-            difference,
-            normalizer,
-            per_row: per_row_reduction,
-        })
+        value
+            .to(logits.device())
+            .with_grad(&[logits], || WeightedCrossEntropyBackward {
+                difference,
+                normalizer,
+                per_row: per_row_reduction,
+            })
     }
 }
 

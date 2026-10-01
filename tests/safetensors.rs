@@ -2,9 +2,9 @@
 
 use std::collections::HashMap;
 
+use fastnn::prelude::*;
 use fastnn::serialize::half::{bf16_from_f32, f16_from_f32};
 use fastnn::serialize::load_safetensors_renamed;
-use fastnn::prelude::*;
 
 fn temp(name: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(name)
@@ -13,19 +13,29 @@ fn temp(name: &str) -> std::path::PathBuf {
 #[test]
 fn roundtrip_reproduces_every_prediction() {
     manual_seed(20);
-    let model = Sequential::new().add(Linear::new(5, 8)).add(GELU).add(Linear::new(8, 2));
+    let model = Sequential::new()
+        .add(Linear::new(5, 8))
+        .add(GELU)
+        .add(Linear::new(8, 2));
     let inputs = Tensor::randn(&[3, 5]);
     let before = no_grad(|| model.forward(&inputs)).to_vec();
 
     let path = temp("fastnn_st_roundtrip.safetensors");
     save_safetensors(&model, &path).unwrap();
 
-    let reloaded = Sequential::new().add(Linear::new(5, 8)).add(GELU).add(Linear::new(8, 2));
+    let reloaded = Sequential::new()
+        .add(Linear::new(5, 8))
+        .add(GELU)
+        .add(Linear::new(8, 2));
     let report = load_safetensors(&reloaded, &path).unwrap();
     std::fs::remove_file(&path).ok();
 
     assert!(report.missing.is_empty(), "missing: {:?}", report.missing);
-    assert!(report.unexpected.is_empty(), "unexpected: {:?}", report.unexpected);
+    assert!(
+        report.unexpected.is_empty(),
+        "unexpected: {:?}",
+        report.unexpected
+    );
     assert_eq!(report.loaded.len(), 4, "two layers × weight+bias");
     assert_eq!(no_grad(|| reloaded.forward(&inputs)).to_vec(), before);
 }
@@ -38,7 +48,9 @@ fn partial_load_reports_instead_of_guessing() {
     save_safetensors(&small, &path).unwrap();
 
     // A model with an extra layer: the first layer matches, the second cannot.
-    let bigger = Sequential::new().add(Linear::new(4, 4)).add(Linear::new(4, 3));
+    let bigger = Sequential::new()
+        .add(Linear::new(4, 4))
+        .add(Linear::new(4, 3));
     let report = load_safetensors(&bigger, &path).unwrap();
     std::fs::remove_file(&path).ok();
 
@@ -66,7 +78,10 @@ fn renaming_maps_foreign_keys_onto_the_model() {
 
     assert_eq!(report.loaded.len(), 2);
     assert!(report.missing.is_empty() && report.unexpected.is_empty());
-    assert_eq!(target.parameters()[0].value().to_vec(), source.parameters()[0].value().to_vec());
+    assert_eq!(
+        target.parameters()[0].value().to_vec(),
+        source.parameters()[0].value().to_vec()
+    );
 }
 
 #[test]
@@ -80,8 +95,14 @@ fn shape_clash_is_an_error_that_names_the_tensor() {
     let error = load_safetensors(&wrong, &path).unwrap_err().to_string();
     std::fs::remove_file(&path).ok();
 
-    assert!(error.contains("weight"), "error should name the tensor: {error}");
-    assert!(error.contains("[2, 3]") && error.contains("[5, 3]"), "and both shapes: {error}");
+    assert!(
+        error.contains("weight"),
+        "error should name the tensor: {error}"
+    );
+    assert!(
+        error.contains("[2, 3]") && error.contains("[5, 3]"),
+        "and both shapes: {error}"
+    );
 }
 
 /// A file written by hand in the two half-precision dtypes: loading must widen
@@ -117,8 +138,16 @@ fn half_precision_tensors_widen_exactly() {
 
     assert_eq!(report.loaded.len(), 2);
     let params = model.parameters();
-    assert_eq!(params[0].value().to_vec(), f16_values, "f16 weight widened exactly");
-    assert_eq!(params[1].value().to_vec(), bf16_values, "bf16 bias widened exactly");
+    assert_eq!(
+        params[0].value().to_vec(),
+        f16_values,
+        "f16 weight widened exactly"
+    );
+    assert_eq!(
+        params[1].value().to_vec(),
+        bf16_values,
+        "bf16 bias widened exactly"
+    );
 }
 
 #[test]

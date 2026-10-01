@@ -29,8 +29,8 @@ impl Tensor {
         if let (Storage::Cuda(x), Storage::Cuda(g), Storage::Cuda(b)) =
             (self.storage(), gamma.storage(), beta.storage())
         {
-            let (out, mean, inv_std) = kernels::layer_norm_forward(x, g, b, rows, cols, eps)
-                .expect("cuda layer_norm");
+            let (out, mean, inv_std) =
+                kernels::layer_norm_forward(x, g, b, rows, cols, eps).expect("cuda layer_norm");
             let out = Tensor::raw(Storage::Cuda(out), self.shape().to_vec(), self.device());
             let mean = Tensor::raw(Storage::Cuda(mean), vec![rows], self.device());
             let inv_std = Tensor::raw(Storage::Cuda(inv_std), vec![rows], self.device());
@@ -75,7 +75,12 @@ impl Tensor {
     /// then scale and shift. Training-mode only — at eval time the layer applies
     /// its running statistics as a plain affine transform.
     pub fn batch_norm2d(&self, gamma: &Tensor, beta: &Tensor, eps: f32) -> (Tensor, BatchStats) {
-        assert_eq!(self.ndim(), 4, "batch_norm2d expects [N, C, H, W], got {:?}", self.shape());
+        assert_eq!(
+            self.ndim(),
+            4,
+            "batch_norm2d expects [N, C, H, W], got {:?}",
+            self.shape()
+        );
         let (n, c, h, w) = (self.dim(0), self.dim(1), self.dim(2), self.dim(3));
         let plane = h * w;
         let count = (n * plane) as f32;
@@ -83,16 +88,25 @@ impl Tensor {
         let (data, g, b) = (self.to_vec(), gamma.to_vec(), beta.to_vec());
         let mut out = vec![0.0f32; data.len()];
         let mut normalized = vec![0.0f32; data.len()];
-        let mut stats = BatchStats { mean: vec![0.0; c], var: vec![0.0; c] };
+        let mut stats = BatchStats {
+            mean: vec![0.0; c],
+            var: vec![0.0; c],
+        };
         let mut inv_std = vec![0.0f32; c];
 
         for channel in 0..c {
             let values = |image: usize, i: usize| data[(image * c + channel) * plane + i];
 
-            let mean = (0..n).flat_map(|i| (0..plane).map(move |p| (i, p)))
-                .map(|(i, p)| values(i, p)).sum::<f32>() / count;
-            let var = (0..n).flat_map(|i| (0..plane).map(move |p| (i, p)))
-                .map(|(i, p)| (values(i, p) - mean).powi(2)).sum::<f32>() / count;
+            let mean = (0..n)
+                .flat_map(|i| (0..plane).map(move |p| (i, p)))
+                .map(|(i, p)| values(i, p))
+                .sum::<f32>()
+                / count;
+            let var = (0..n)
+                .flat_map(|i| (0..plane).map(move |p| (i, p)))
+                .map(|(i, p)| (values(i, p) - mean).powi(2))
+                .sum::<f32>()
+                / count;
 
             stats.mean[channel] = mean;
             stats.var[channel] = var;
@@ -109,13 +123,14 @@ impl Tensor {
         }
 
         let shape = self.shape().to_vec();
-        let result = Tensor::from_vec(out, &shape)
-            .to(self.device())
-            .with_grad(&[self, gamma, beta], || BatchNorm2dBackward {
-                normalized: Tensor::from_vec(normalized, &shape),
-                gamma: g,
-                inv_std,
-            });
+        let result =
+            Tensor::from_vec(out, &shape)
+                .to(self.device())
+                .with_grad(&[self, gamma, beta], || BatchNorm2dBackward {
+                    normalized: Tensor::from_vec(normalized, &shape),
+                    gamma: g,
+                    inv_std,
+                });
         (result, stats)
     }
 }

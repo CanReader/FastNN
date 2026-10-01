@@ -108,7 +108,12 @@ impl Tensor {
     }
 
     fn expect_nchw(&self, op: &str) -> (usize, usize, usize, usize) {
-        assert_eq!(self.ndim(), 4, "{op} expects [N, C, H, W], got {:?}", self.shape());
+        assert_eq!(
+            self.ndim(),
+            4,
+            "{op} expects [N, C, H, W], got {:?}",
+            self.shape()
+        );
         (self.dim(0), self.dim(1), self.dim(2), self.dim(3))
     }
 }

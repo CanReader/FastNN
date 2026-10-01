@@ -23,19 +23,33 @@ pub struct Conv1d {
 
 impl Conv1d {
     /// Symmetric padding, as in the 2-D case.
-    pub fn new(in_channels: usize, out_channels: usize, kernel: usize, stride: usize, padding: usize) -> Conv1d {
+    pub fn new(
+        in_channels: usize,
+        out_channels: usize,
+        kernel: usize,
+        stride: usize,
+        padding: usize,
+    ) -> Conv1d {
         let window = Window {
             kernel: (1, kernel),
             stride: (1, stride),
             padding: (0, padding),
             dilation: (1, 1),
         };
-        Conv1d { inner: Conv2d::with_window(in_channels, out_channels, window, true), left_pad: 0 }
+        Conv1d {
+            inner: Conv2d::with_window(in_channels, out_channels, window, true),
+            left_pad: 0,
+        }
     }
 
     /// Causal, length-preserving, optionally dilated: output `t` depends only
     /// on inputs `≤ t`.
-    pub fn causal(in_channels: usize, out_channels: usize, kernel: usize, dilation: usize) -> Conv1d {
+    pub fn causal(
+        in_channels: usize,
+        out_channels: usize,
+        kernel: usize,
+        dilation: usize,
+    ) -> Conv1d {
         let window = Window {
             kernel: (1, kernel),
             stride: (1, 1),
@@ -51,12 +65,18 @@ impl Conv1d {
 
 impl Module for Conv1d {
     fn forward(&self, input: &Tensor) -> Tensor {
-        assert_eq!(input.ndim(), 3, "Conv1d expects [N, C, L], got {:?}", input.shape());
+        assert_eq!(
+            input.ndim(),
+            3,
+            "Conv1d expects [N, C, L], got {:?}",
+            input.shape()
+        );
 
         // Left-only zero padding, done explicitly: Window padding is symmetric
         // by design, and causality is exactly the asymmetric case.
         let padded = if self.left_pad > 0 {
-            let zeros = Tensor::zeros(&[input.dim(0), input.dim(1), self.left_pad]).to(input.device());
+            let zeros =
+                Tensor::zeros(&[input.dim(0), input.dim(1), self.left_pad]).to(input.device());
             Tensor::cat(&[&zeros, input], 2)
         } else {
             input.clone()

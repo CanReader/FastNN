@@ -135,7 +135,9 @@ impl Backward for BatchNorm2dBackward {
                 for i in 0..plane {
                     let index = (image * c + channel) * plane + i;
                     d_input[index] = scale
-                        * (g[index] - d_beta[channel] / count - unit[index] * d_gamma[channel] / count);
+                        * (g[index]
+                            - d_beta[channel] / count
+                            - unit[index] * d_gamma[channel] / count);
                 }
             }
         }

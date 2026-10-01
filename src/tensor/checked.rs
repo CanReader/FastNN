@@ -46,7 +46,11 @@ impl Tensor {
     pub fn try_matmul_tn(&self, other: &Tensor) -> Result<Tensor> {
         self.check_same_device(other, "matmul_tn")?;
         self.check_matmul_rank(other)?;
-        self.check_matmul_dims(other, self.dim(self.ndim() - 2), other.dim(other.ndim() - 2))?;
+        self.check_matmul_dims(
+            other,
+            self.dim(self.ndim() - 2),
+            other.dim(other.ndim() - 2),
+        )?;
         Ok(self.matmul_tn(other))
     }
 
@@ -78,13 +82,21 @@ impl Tensor {
     pub fn try_reshape(&self, dims: &[i64]) -> Result<Tensor> {
         let placeholders = dims.iter().filter(|&&d| d == -1).count();
         if placeholders > 1 {
-            return Err(Error::Shape(format!("reshape: more than one -1 in {dims:?}")));
+            return Err(Error::Shape(format!(
+                "reshape: more than one -1 in {dims:?}"
+            )));
         }
         if dims.iter().any(|&d| d == 0 || d < -1) {
-            return Err(Error::Shape(format!("reshape: dimensions must be positive or -1, got {dims:?}")));
+            return Err(Error::Shape(format!(
+                "reshape: dimensions must be positive or -1, got {dims:?}"
+            )));
         }
 
-        let known: usize = dims.iter().filter(|&&d| d != -1).map(|&d| d as usize).product();
+        let known: usize = dims
+            .iter()
+            .filter(|&&d| d != -1)
+            .map(|&d| d as usize)
+            .product();
         let fits = if placeholders == 1 {
             known > 0 && self.numel().is_multiple_of(known)
         } else {
@@ -92,7 +104,8 @@ impl Tensor {
         };
         if !fits {
             return Err(Error::Shape(format!(
-                "reshape: {} elements do not fit shape {dims:?}", self.numel()
+                "reshape: {} elements do not fit shape {dims:?}",
+                self.numel()
             )));
         }
         Ok(self.reshape(dims))
@@ -102,12 +115,15 @@ impl Tensor {
     pub fn try_index_select(&self, ids: &[usize]) -> Result<Tensor> {
         if self.ndim() != 2 {
             return Err(Error::Shape(format!(
-                "index_select: needs a 2-D table, got {:?}", self.shape()
+                "index_select: needs a 2-D table, got {:?}",
+                self.shape()
             )));
         }
         let rows = self.dim(0);
         if let Some(&bad) = ids.iter().find(|&&id| id >= rows) {
-            return Err(Error::Shape(format!("index_select: row {bad} outside 0..{rows}")));
+            return Err(Error::Shape(format!(
+                "index_select: row {bad} outside 0..{rows}"
+            )));
         }
         Ok(self.index_select(ids))
     }
@@ -117,7 +133,9 @@ impl Tensor {
     fn check_same_device(&self, other: &Tensor, op: &str) -> Result<()> {
         if self.device() != other.device() {
             return Err(Error::Shape(format!(
-                "{op}: {} and {} are on different devices", self.device(), other.device()
+                "{op}: {} and {} are on different devices",
+                self.device(),
+                other.device()
             )));
         }
         Ok(())
@@ -127,7 +145,9 @@ impl Tensor {
     fn check_matmul_rank(&self, other: &Tensor) -> Result<()> {
         if self.ndim() < 2 || other.ndim() < 2 {
             return Err(Error::Shape(format!(
-                "matmul: needs 2+ dimensions, got {:?} and {:?}", self.shape(), other.shape()
+                "matmul: needs 2+ dimensions, got {:?} and {:?}",
+                self.shape(),
+                other.shape()
             )));
         }
         Ok(())
@@ -138,7 +158,8 @@ impl Tensor {
         if inner != other_inner {
             return Err(Error::Shape(format!(
                 "matmul: inner dimensions {inner} and {other_inner} disagree for {:?} and {:?}",
-                self.shape(), other.shape()
+                self.shape(),
+                other.shape()
             )));
         }
 
@@ -160,12 +181,13 @@ impl Tensor {
         let b = shape::pad_left(other.shape(), ndim);
         if a.iter().zip(&b).any(|(&x, &y)| x != y && x != 1 && y != 1) {
             return Err(Error::Shape(format!(
-                "{op}: cannot broadcast {:?} and {:?}", self.shape(), other.shape()
+                "{op}: cannot broadcast {:?} and {:?}",
+                self.shape(),
+                other.shape()
             )));
         }
         Ok(())
     }
-
 }
 
 #[cfg(test)]

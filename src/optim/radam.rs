@@ -104,7 +104,8 @@ impl Optimizer for RAdam {
             let update = match rectifier {
                 Some(r) => {
                     let variance = second.div_scalar(1.0 - self.beta2.powi(t as i32));
-                    mean.div(&variance.sqrt().add_scalar(self.eps)).mul_scalar(r)
+                    mean.div(&variance.sqrt().add_scalar(self.eps))
+                        .mul_scalar(r)
                 }
                 // Too few samples to trust the variance: momentum SGD instead.
                 None => mean,
@@ -160,13 +161,19 @@ mod tests {
     fn rectifier_switches_on_at_step_five_and_damps() {
         let opt = RAdam::new(vec![], 1e-3);
         for t in 1..=4 {
-            assert!(opt.rectifier(t).is_none(), "step {t} should fall back to momentum");
+            assert!(
+                opt.rectifier(t).is_none(),
+                "step {t} should fall back to momentum"
+            );
         }
         let r = opt.rectifier(5).expect("step 5 should rectify");
         assert!(r > 0.0 && r < 1.0, "early rectifier should damp, got {r}");
         // Late in training the correction must vanish: r → 1.
         let late = opt.rectifier(100_000).unwrap();
-        assert!((late - 1.0).abs() < 0.01, "late rectifier should approach 1, got {late}");
+        assert!(
+            (late - 1.0).abs() < 0.01,
+            "late rectifier should approach 1, got {late}"
+        );
     }
 
     /// The first step is pure bias-corrected momentum: with β₁ = 0.9 and g = 2,
@@ -180,6 +187,9 @@ mod tests {
         opt.step();
 
         let got = param.value().to_vec()[0];
-        assert!((got - 0.8).abs() < 1e-6, "expected 1 − 0.1·2 = 0.8, got {got}");
+        assert!(
+            (got - 0.8).abs() < 1e-6,
+            "expected 1 − 0.1·2 = 0.8, got {got}"
+        );
     }
 }

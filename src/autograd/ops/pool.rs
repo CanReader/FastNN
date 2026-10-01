@@ -76,7 +76,8 @@ impl Backward for AdaptiveAvgPool2dBackward {
                 let rows = adaptive_range(oh, h, out_h);
                 for ow in 0..out_w {
                     let cols = adaptive_range(ow, w, out_w);
-                    let share = g[(plane * out_h + oh) * out_w + ow] / (rows.len() * cols.len()) as f32;
+                    let share =
+                        g[(plane * out_h + oh) * out_w + ow] / (rows.len() * cols.len()) as f32;
                     for ih in rows.clone() {
                         for iw in cols.clone() {
                             out[plane * h * w + ih * w + iw] += share;

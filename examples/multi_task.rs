@@ -20,7 +20,11 @@ struct MultiTask {
 impl MultiTask {
     fn new() -> MultiTask {
         MultiTask {
-            trunk: Sequential::new().add(Linear::new(2, 24)).add(Tanh).add(Linear::new(24, 24)).add(Tanh),
+            trunk: Sequential::new()
+                .add(Linear::new(2, 24))
+                .add(Tanh)
+                .add(Linear::new(24, 24))
+                .add(Tanh),
             sign_head: Linear::new(24, 2),
             circle_head: Linear::new(24, 2),
         }
@@ -28,7 +32,10 @@ impl MultiTask {
 
     fn heads(&self, x: &Tensor) -> (Tensor, Tensor) {
         let features = self.trunk.forward(x);
-        (self.sign_head.forward(&features), self.circle_head.forward(&features))
+        (
+            self.sign_head.forward(&features),
+            self.circle_head.forward(&features),
+        )
     }
 }
 
@@ -45,7 +52,12 @@ impl Module for MultiTask {
 }
 
 fn accuracy(logits: &Tensor, labels: &[usize]) -> f32 {
-    let hits = logits.argmax(1).iter().zip(labels).filter(|(a, b)| a == b).count();
+    let hits = logits
+        .argmax(1)
+        .iter()
+        .zip(labels)
+        .filter(|(a, b)| a == b)
+        .count();
     hits as f32 / labels.len() as f32
 }
 
@@ -53,7 +65,10 @@ fn main() {
     manual_seed(51);
     let coords = fastnn::rng::uniform(512 * 2, -1.5, 1.5);
     let sign_labels: Vec<usize> = coords.chunks(2).map(|p| (p[0] > 0.0) as usize).collect();
-    let circle_labels: Vec<usize> = coords.chunks(2).map(|p| (p[0] * p[0] + p[1] * p[1] < 1.0) as usize).collect();
+    let circle_labels: Vec<usize> = coords
+        .chunks(2)
+        .map(|p| (p[0] * p[0] + p[1] * p[1] < 1.0) as usize)
+        .collect();
     let inputs = Tensor::from_vec(coords, &[512, 2]);
 
     let model = MultiTask::new();

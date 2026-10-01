@@ -34,8 +34,10 @@ impl Tensor {
     /// Panics if `data.len()` does not match the shape.
     pub fn from_vec(data: Vec<f32>, shape: &[usize]) -> Tensor {
         assert_eq!(
-            data.len(), shape::numel(shape),
-            "from_vec: {} values do not fill shape {shape:?}", data.len()
+            data.len(),
+            shape::numel(shape),
+            "from_vec: {} values do not fill shape {shape:?}",
+            data.len()
         );
         Tensor::raw(Storage::Cpu(data), shape.to_vec(), Device::Cpu)
     }
@@ -54,12 +56,27 @@ impl Tensor {
     /// Reuse an existing allocation under a new shape. This is what makes
     /// `reshape` free — the tensors alias the same buffer.
     pub(crate) fn raw_shared(storage: Arc<Storage>, shape: Vec<usize>, device: Device) -> Tensor {
-        Tensor { storage, shape, device, node: None }
+        Tensor {
+            storage,
+            shape,
+            device,
+            node: None,
+        }
     }
 
     /// A tensor whose gradient accumulates into `slot`. Backs [`Param`](crate::nn::Param).
-    pub(crate) fn leaf(storage: Arc<Storage>, shape: Vec<usize>, device: Device, slot: GradSlot) -> Tensor {
-        Tensor { storage, shape, device, node: Some(Node::Leaf(slot)) }
+    pub(crate) fn leaf(
+        storage: Arc<Storage>,
+        shape: Vec<usize>,
+        device: Device,
+        slot: GradSlot,
+    ) -> Tensor {
+        Tensor {
+            storage,
+            shape,
+            device,
+            node: Some(Node::Leaf(slot)),
+        }
     }
 
     // ── Shape and metadata ───────────────────────────────────────────────────
@@ -86,7 +103,11 @@ impl Tensor {
 
     /// The size of dimension `axis`. Panics if out of range.
     pub fn dim(&self, axis: usize) -> usize {
-        assert!(axis < self.ndim(), "dim {axis} out of range for shape {:?}", self.shape);
+        assert!(
+            axis < self.ndim(),
+            "dim {axis} out of range for shape {:?}",
+            self.shape
+        );
         self.shape[axis]
     }
 
@@ -104,7 +125,12 @@ impl Tensor {
 
     /// The one value in a single-element tensor. Panics otherwise.
     pub fn item(&self) -> f32 {
-        assert_eq!(self.numel(), 1, "item() needs one element, got shape {:?}", self.shape);
+        assert_eq!(
+            self.numel(),
+            1,
+            "item() needs one element, got shape {:?}",
+            self.shape
+        );
         self.to_vec()[0]
     }
 

@@ -7,7 +7,11 @@ use crate::autograd::Backward;
 use crate::tensor::Tensor;
 
 /// `g · f(x)`, with `f` evaluated on the host and moved to the gradient's device.
-pub(crate) fn elementwise(grad: &Tensor, input: &Tensor, f: impl Fn(f32) -> f32 + Send + Sync) -> Tensor {
+pub(crate) fn elementwise(
+    grad: &Tensor,
+    input: &Tensor,
+    f: impl Fn(f32) -> f32 + Send + Sync,
+) -> Tensor {
     let local = Tensor::from_vec(crate::tensor::ops::map(&input.to_vec(), f), input.shape());
     grad.mul(&local.to(grad.device()))
 }
@@ -73,7 +77,9 @@ pub struct AbsBackward {
 
 impl Backward for AbsBackward {
     fn backward(&self, grad: &Tensor) -> Vec<Tensor> {
-        vec![elementwise(grad, &self.input, |x| x.signum() * (x != 0.0) as i32 as f32)]
+        vec![elementwise(grad, &self.input, |x| {
+            x.signum() * (x != 0.0) as i32 as f32
+        })]
     }
     fn name(&self) -> &'static str {
         "Abs"
@@ -107,7 +113,9 @@ pub struct ClampBackward {
 impl Backward for ClampBackward {
     fn backward(&self, grad: &Tensor) -> Vec<Tensor> {
         let (lo, hi) = (self.lo, self.hi);
-        vec![elementwise(grad, &self.input, move |x| ((lo..=hi).contains(&x)) as i32 as f32)]
+        vec![elementwise(grad, &self.input, move |x| {
+            ((lo..=hi).contains(&x)) as i32 as f32
+        })]
     }
     fn name(&self) -> &'static str {
         "Clamp"

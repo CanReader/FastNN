@@ -69,7 +69,11 @@ impl Mnist {
             )));
         }
 
-        Ok(Mnist { images, labels, len: image_count })
+        Ok(Mnist {
+            images,
+            labels,
+            len: image_count,
+        })
     }
 
     /// Every image as one `[N, 1, 28, 28]` tensor.
@@ -109,7 +113,10 @@ pub fn default_cache_dir() -> PathBuf {
         return PathBuf::from(dir).join("mnist");
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join(".fastnn").join("datasets").join("mnist")
+    PathBuf::from(home)
+        .join(".fastnn")
+        .join("datasets")
+        .join("mnist")
 }
 
 /// Fetch and decompress any of `files` that are not already cached.
@@ -145,11 +152,15 @@ fn parse_images(bytes: &[u8]) -> Result<(Vec<f32>, usize)> {
     let expected = 16 + count * rows * cols;
     if bytes.len() != expected {
         return Err(Error::Dataset(format!(
-            "mnist images: {} bytes, expected {expected}", bytes.len()
+            "mnist images: {} bytes, expected {expected}",
+            bytes.len()
         )));
     }
     // Scale to [0, 1]; unnormalized 0–255 inputs would saturate the first layer.
-    Ok((bytes[16..].iter().map(|&b| b as f32 / 255.0).collect(), count))
+    Ok((
+        bytes[16..].iter().map(|&b| b as f32 / 255.0).collect(),
+        count,
+    ))
 }
 
 /// IDX labels: magic, count, then one byte per label.
@@ -159,7 +170,9 @@ fn parse_labels(bytes: &[u8]) -> Result<(Vec<f32>, usize)> {
 
     if bytes.len() != 8 + count {
         return Err(Error::Dataset(format!(
-            "mnist labels: {} bytes, expected {}", bytes.len(), 8 + count
+            "mnist labels: {} bytes, expected {}",
+            bytes.len(),
+            8 + count
         )));
     }
     Ok((bytes[8..].iter().map(|&b| b as f32).collect(), count))
@@ -177,7 +190,8 @@ fn read_header(bytes: &[u8], words: usize, magic: u32, what: &str) -> Result<Vec
 
     if values[0] as u32 != magic {
         return Err(Error::Dataset(format!(
-            "mnist {what}: magic {:#010x}, expected {magic:#010x}", values[0]
+            "mnist {what}: magic {:#010x}, expected {magic:#010x}",
+            values[0]
         )));
     }
     Ok(values)

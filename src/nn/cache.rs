@@ -64,7 +64,9 @@ pub struct StackCache {
 
 impl StackCache {
     pub fn new(layers: usize) -> StackCache {
-        StackCache { layers: (0..layers).map(|_| KvCache::new()).collect() }
+        StackCache {
+            layers: (0..layers).map(|_| KvCache::new()).collect(),
+        }
     }
 
     /// How many positions are cached — the next token's position index.

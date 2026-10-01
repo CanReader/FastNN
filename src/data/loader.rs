@@ -85,7 +85,11 @@ impl<'a> DataLoader<'a> {
     /// Number of batches one pass will yield.
     pub fn batches(&self) -> usize {
         let n = self.dataset.len();
-        if self.drop_last { n / self.batch_size } else { n.div_ceil(self.batch_size) }
+        if self.drop_last {
+            n / self.batch_size
+        } else {
+            n.div_ceil(self.batch_size)
+        }
     }
 
     /// Start a pass over the data.

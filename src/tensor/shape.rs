@@ -26,10 +26,16 @@ pub fn resolve(shape: &[i64], numel: usize) -> Vec<usize> {
     let mut known = 1usize;
     for (i, &d) in shape.iter().enumerate() {
         if d == -1 {
-            assert!(placeholder.is_none(), "reshape: at most one -1, got {shape:?}");
+            assert!(
+                placeholder.is_none(),
+                "reshape: at most one -1, got {shape:?}"
+            );
             placeholder = Some(i);
         } else {
-            assert!(d > 0, "reshape: dimensions must be positive or -1, got {shape:?}");
+            assert!(
+                d > 0,
+                "reshape: dimensions must be positive or -1, got {shape:?}"
+            );
             known *= d as usize;
         }
     }
@@ -45,7 +51,10 @@ pub fn resolve(shape: &[i64], numel: usize) -> Vec<usize> {
             out
         }
         None => {
-            assert_eq!(known, numel, "reshape: {shape:?} holds {known} elements, need {numel}");
+            assert_eq!(
+                known, numel,
+                "reshape: {shape:?} holds {known} elements, need {numel}"
+            );
             shape.iter().map(|&d| d as usize).collect()
         }
     }
@@ -91,7 +100,10 @@ pub fn broadcast_strides(shape: &[usize], out: &[usize]) -> Vec<usize> {
 ///
 /// Most reductions and axis-wise scatters reduce to a triple loop over these.
 pub fn split_at_axis(shape: &[usize], axis: usize) -> (usize, usize, usize) {
-    assert!(axis < shape.len(), "axis {axis} out of range for shape {shape:?}");
+    assert!(
+        axis < shape.len(),
+        "axis {axis} out of range for shape {shape:?}"
+    );
     (
         numel(&shape[..axis]),
         shape[axis],
@@ -101,7 +113,11 @@ pub fn split_at_axis(shape: &[usize], axis: usize) -> (usize, usize, usize) {
 
 fn dim_right_aligned(shape: &[usize], ndim: usize, i: usize) -> usize {
     let offset = ndim - shape.len();
-    if i < offset { 1 } else { shape[i - offset] }
+    if i < offset {
+        1
+    } else {
+        shape[i - offset]
+    }
 }
 
 #[cfg(test)]

@@ -54,7 +54,10 @@ impl RMSprop {
 
     /// Decay rate of the squared-gradient average. Closer to 1 remembers longer.
     pub fn alpha(mut self, alpha: f32) -> RMSprop {
-        assert!((0.0..1.0).contains(&alpha), "alpha must be in [0, 1), got {alpha}");
+        assert!(
+            (0.0..1.0).contains(&alpha),
+            "alpha must be in [0, 1), got {alpha}"
+        );
         self.alpha = alpha;
         self
     }
@@ -164,7 +167,10 @@ mod tests {
 
         let expected = 1.0 - 0.1 * 3.0 / (0.5f32 * 9.0).sqrt();
         let got = param.value().to_vec()[0];
-        assert!((got - expected).abs() < 1e-6, "got {got}, expected {expected}");
+        assert!(
+            (got - expected).abs() < 1e-6,
+            "got {got}, expected {expected}"
+        );
     }
 
     /// Centered RMSprop with a constant gradient: the variance estimate
@@ -174,7 +180,9 @@ mod tests {
     #[test]
     fn centered_variant_accelerates_on_constant_gradients() {
         let param = Param::new(Tensor::from_vec(vec![0.0], &[1]));
-        let mut opt = RMSprop::new(vec![param.clone()], 0.01).alpha(0.9).centered();
+        let mut opt = RMSprop::new(vec![param.clone()], 0.01)
+            .alpha(0.9)
+            .centered();
 
         let mut previous = 0.0f32;
         let mut first_step_size = 0.0f32;

@@ -28,7 +28,11 @@ pub struct MultiHeadAttention {
 
 impl MultiHeadAttention {
     pub fn new(embed_dim: usize, heads: usize, dropout: f32) -> MultiHeadAttention {
-        assert_eq!(embed_dim % heads, 0, "embed_dim {embed_dim} must divide into {heads} heads");
+        assert_eq!(
+            embed_dim % heads,
+            0,
+            "embed_dim {embed_dim} must divide into {heads} heads"
+        );
         let head_dim = embed_dim / heads;
         MultiHeadAttention {
             query: Linear::new(embed_dim, embed_dim),
@@ -82,7 +86,8 @@ impl MultiHeadAttention {
         }
         if let Some(mask) = key_mask {
             assert_eq!(
-                mask.shape(), &[batch, kv_len],
+                mask.shape(),
+                &[batch, kv_len],
                 "key mask must be [batch, kv_len] = [{batch}, {kv_len}]"
             );
             // 1/0 keep/pad → 0/-1e9, repeated per head so it broadcasts over
@@ -99,7 +104,8 @@ impl MultiHeadAttention {
         let weights = self.dropout.forward(&scores.softmax());
         let attended = weights.matmul(&v);
 
-        self.output.forward(&self.merge_heads(&attended, batch, q_len, embed_dim))
+        self.output
+            .forward(&self.merge_heads(&attended, batch, q_len, embed_dim))
     }
 
     /// Causal self-attention over `input`'s new tokens plus everything in
@@ -122,25 +128,45 @@ impl MultiHeadAttention {
         // A single new token sits at the end of the sequence and may see all of
         // it, so only multi-token steps need masking.
         if new_len > 1 {
-            scores = scores.add(&causal_mask(batch * self.heads, new_len, kv_len, scores.device()));
+            scores = scores.add(&causal_mask(
+                batch * self.heads,
+                new_len,
+                kv_len,
+                scores.device(),
+            ));
         }
 
         let attended = scores.softmax().matmul(v);
-        self.output.forward(&self.merge_heads(&attended, batch, new_len, embed_dim))
+        self.output
+            .forward(&self.merge_heads(&attended, batch, new_len, embed_dim))
     }
 
     /// `[batch, len, embed]` → `[batch·heads, len, head_dim]`.
     fn split_heads(&self, x: &Tensor, batch: usize, len: usize) -> Tensor {
-        x.reshape(&[batch as i64, len as i64, self.heads as i64, self.head_dim as i64])
-            .permute(&[0, 2, 1, 3])
-            .reshape(&[(batch * self.heads) as i64, len as i64, self.head_dim as i64])
+        x.reshape(&[
+            batch as i64,
+            len as i64,
+            self.heads as i64,
+            self.head_dim as i64,
+        ])
+        .permute(&[0, 2, 1, 3])
+        .reshape(&[
+            (batch * self.heads) as i64,
+            len as i64,
+            self.head_dim as i64,
+        ])
     }
 
     /// `[batch·heads, len, head_dim]` → `[batch, len, embed]`.
     fn merge_heads(&self, x: &Tensor, batch: usize, len: usize, embed_dim: usize) -> Tensor {
-        x.reshape(&[batch as i64, self.heads as i64, len as i64, self.head_dim as i64])
-            .permute(&[0, 2, 1, 3])
-            .reshape(&[batch as i64, len as i64, embed_dim as i64])
+        x.reshape(&[
+            batch as i64,
+            self.heads as i64,
+            len as i64,
+            self.head_dim as i64,
+        ])
+        .permute(&[0, 2, 1, 3])
+        .reshape(&[batch as i64, len as i64, embed_dim as i64])
     }
 }
 
@@ -192,7 +218,11 @@ fn causal_mask(lanes: usize, q_len: usize, kv_len: usize, device: Device) -> Ten
                     .map(|i| {
                         let query_pos = (i / kv_len) % q_len;
                         let key_pos = i % kv_len;
-                        if key_pos > query_pos + offset { -1e9 } else { 0.0 }
+                        if key_pos > query_pos + offset {
+                            -1e9
+                        } else {
+                            0.0
+                        }
                     })
                     .collect();
                 Tensor::from_vec(data, &[lanes, q_len, kv_len]).to(device)

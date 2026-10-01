@@ -24,7 +24,10 @@ pub struct OptimizerState {
 
 impl OptimizerState {
     pub fn new(steps: u64) -> OptimizerState {
-        OptimizerState { tensors: BTreeMap::new(), steps }
+        OptimizerState {
+            tensors: BTreeMap::new(),
+            steps,
+        }
     }
 
     /// Record one per-parameter series, such as momentum or a moment estimate.
@@ -34,7 +37,8 @@ impl OptimizerState {
     pub fn put(&mut self, slot: &str, series: &[Option<Tensor>]) {
         for (index, value) in series.iter().enumerate() {
             if let Some(tensor) = value {
-                self.tensors.insert(format!("{slot}/{index}"), tensor.detach().cpu());
+                self.tensors
+                    .insert(format!("{slot}/{index}"), tensor.detach().cpu());
             }
         }
     }
@@ -46,13 +50,17 @@ impl OptimizerState {
     pub fn take(&self, slot: &str, len: usize) -> Result<Vec<Option<Tensor>>> {
         let prefix = format!("{slot}/");
         if let Some(name) = self.tensors.keys().find(|k| {
-            k.strip_prefix(&prefix).and_then(|i| i.parse::<usize>().ok()).is_some_and(|i| i >= len)
+            k.strip_prefix(&prefix)
+                .and_then(|i| i.parse::<usize>().ok())
+                .is_some_and(|i| i >= len)
         }) {
             return Err(Error::Checkpoint(format!(
                 "optimizer state holds '{name}' but this optimizer has only {len} parameters"
             )));
         }
-        Ok((0..len).map(|i| self.tensors.get(&format!("{prefix}{i}")).cloned()).collect())
+        Ok((0..len)
+            .map(|i| self.tensors.get(&format!("{prefix}{i}")).cloned())
+            .collect())
     }
 }
 

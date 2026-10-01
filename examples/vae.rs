@@ -27,7 +27,10 @@ impl Vae {
             encoder: Sequential::new().add(Linear::new(2, 32)).add(Tanh),
             to_mean: Linear::new(32, LATENT),
             to_logvar: Linear::new(32, LATENT),
-            decoder: Sequential::new().add(Linear::new(LATENT, 32)).add(Tanh).add(Linear::new(32, 2)),
+            decoder: Sequential::new()
+                .add(Linear::new(LATENT, 32))
+                .add(Tanh)
+                .add(Linear::new(32, 2)),
         }
     }
 
@@ -79,8 +82,14 @@ fn main() {
 
         let reconstruction = mse(&reconstructed, &batch);
         // KL(N(mu, sigma) ‖ N(0, 1)), summed over latent dims, averaged over the batch.
-        let kl = mean.square().add(&logvar.exp()).sub(&logvar).add_scalar(-1.0)
-            .mul_scalar(0.5).sum().div_scalar(batch.dim(0) as f32);
+        let kl = mean
+            .square()
+            .add(&logvar.exp())
+            .sub(&logvar)
+            .add_scalar(-1.0)
+            .mul_scalar(0.5)
+            .sum()
+            .div_scalar(batch.dim(0) as f32);
         let loss = reconstruction.add(&kl.mul_scalar(0.1));
 
         opt.zero_grad();
@@ -90,7 +99,9 @@ fn main() {
         if (step + 1) % 600 == 0 {
             println!(
                 "step {:4}  reconstruction {:.4}  kl {:.3}",
-                step + 1, reconstruction.item(), kl.item()
+                step + 1,
+                reconstruction.item(),
+                kl.item()
             );
         }
     }
@@ -98,6 +109,10 @@ fn main() {
     // Decode from the prior: no encoder, no data — radius ≈ 1 means the latent
     // space really did learn the circle.
     let generated = no_grad(|| model.decoder.forward(&Tensor::randn(&[256, LATENT]))).to_vec();
-    let mean_radius: f32 = generated.chunks(2).map(|p| (p[0] * p[0] + p[1] * p[1]).sqrt()).sum::<f32>() / 256.0;
+    let mean_radius: f32 = generated
+        .chunks(2)
+        .map(|p| (p[0] * p[0] + p[1] * p[1]).sqrt())
+        .sum::<f32>()
+        / 256.0;
     println!("\nmean radius of 256 prior samples: {mean_radius:.3}  (data lives at 1.0)");
 }

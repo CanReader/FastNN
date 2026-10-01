@@ -36,7 +36,10 @@ pub enum Node {
 
 impl Node {
     pub fn op(rule: impl Backward + 'static, inputs: Vec<Tensor>) -> Node {
-        Node::Op(Arc::new(Op { rule: Box::new(rule), inputs }))
+        Node::Op(Arc::new(Op {
+            rule: Box::new(rule),
+            inputs,
+        }))
     }
 
     /// Stable identity, used to accumulate gradients per node during backward.

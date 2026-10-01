@@ -19,9 +19,9 @@ impl Storage {
     pub fn new(data: Vec<f32>, device: Device) -> Self {
         match device {
             Device::Cpu => Storage::Cpu(data),
-            Device::Cuda(_) => Storage::Cuda(
-                CudaBuffer::from_slice(&data).expect("cuda: upload failed"),
-            ),
+            Device::Cuda(_) => {
+                Storage::Cuda(CudaBuffer::from_slice(&data).expect("cuda: upload failed"))
+            }
         }
     }
 

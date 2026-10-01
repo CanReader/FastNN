@@ -36,8 +36,12 @@ impl Gates {
 
     /// `x · W_ihᵀ + b_ih` and `h · W_hhᵀ + b_hh`, each `[batch, count·hidden]`.
     fn project(&self, x: &Tensor, h: &Tensor) -> (Tensor, Tensor) {
-        let from_input = x.matmul_nt(&self.input_weight.tensor()).add(&self.input_bias.tensor());
-        let from_hidden = h.matmul_nt(&self.hidden_weight.tensor()).add(&self.hidden_bias.tensor());
+        let from_input = x
+            .matmul_nt(&self.input_weight.tensor())
+            .add(&self.input_bias.tensor());
+        let from_hidden = h
+            .matmul_nt(&self.hidden_weight.tensor())
+            .add(&self.hidden_bias.tensor());
         (from_input, from_hidden)
     }
 
@@ -70,16 +74,26 @@ impl LSTM {
         // model has learned what to keep.
         let mut bias = gates.input_bias.value().to_vec();
         bias[hidden_size..2 * hidden_size].fill(1.0);
-        gates.input_bias.set_value(Tensor::from_vec(bias, &[4 * hidden_size]));
+        gates
+            .input_bias
+            .set_value(Tensor::from_vec(bias, &[4 * hidden_size]));
 
-        LSTM { gates, input_size, hidden_size }
+        LSTM {
+            gates,
+            input_size,
+            hidden_size,
+        }
     }
 
     /// Run over `[batch, sequence, input_size]`.
     ///
     /// Returns the per-step outputs `[batch, sequence, hidden_size]` plus the
     /// final hidden and cell states.
-    pub fn run(&self, input: &Tensor, initial: Option<(&Tensor, &Tensor)>) -> (Tensor, Tensor, Tensor) {
+    pub fn run(
+        &self,
+        input: &Tensor,
+        initial: Option<(&Tensor, &Tensor)>,
+    ) -> (Tensor, Tensor, Tensor) {
         let (batch, steps) = check_sequence(input, self.input_size, "LSTM");
         let zeros = || Tensor::zeros(&[batch, self.hidden_size]).to(input.device());
         let (mut h, mut c) = match initial {
@@ -127,7 +141,11 @@ pub struct GRU {
 
 impl GRU {
     pub fn new(input_size: usize, hidden_size: usize) -> GRU {
-        GRU { gates: Gates::new(input_size, hidden_size, 3), input_size, hidden_size }
+        GRU {
+            gates: Gates::new(input_size, hidden_size, 3),
+            input_size,
+            hidden_size,
+        }
     }
 
     /// Run over `[batch, sequence, input_size]`, returning the outputs and the
@@ -150,7 +168,9 @@ impl GRU {
             let update = part(&from_input, 1).add(&part(&from_hidden, 1)).sigmoid();
             // The reset gate scales the *hidden* contribution only, letting the
             // candidate ignore history without ignoring the current input.
-            let candidate = part(&from_input, 2).add(&reset.mul(&part(&from_hidden, 2))).tanh();
+            let candidate = part(&from_input, 2)
+                .add(&reset.mul(&part(&from_hidden, 2)))
+                .tanh();
 
             let keep = update.neg().add_scalar(1.0);
             h = keep.mul(&candidate).add(&update.mul(&h));
@@ -173,19 +193,25 @@ impl Module for GRU {
 
 fn check_sequence(input: &Tensor, input_size: usize, layer: &str) -> (usize, usize) {
     assert_eq!(
-        input.ndim(), 3,
-        "{layer} expects [batch, sequence, features], got {:?}", input.shape()
+        input.ndim(),
+        3,
+        "{layer} expects [batch, sequence, features], got {:?}",
+        input.shape()
     );
     assert_eq!(
-        input.dim(2), input_size,
-        "{layer} expects {input_size} features, got {:?}", input.shape()
+        input.dim(2),
+        input_size,
+        "{layer} expects {input_size} features, got {:?}",
+        input.shape()
     );
     (input.dim(0), input.dim(1))
 }
 
 /// Timestep `t` as `[batch, features]`.
 fn step_input(input: &Tensor, t: usize, batch: usize, features: usize) -> Tensor {
-    input.narrow(1, t, 1).reshape(&[batch as i64, features as i64])
+    input
+        .narrow(1, t, 1)
+        .reshape(&[batch as i64, features as i64])
 }
 
 /// Per-step `[batch, hidden]` outputs into `[batch, sequence, hidden]`.

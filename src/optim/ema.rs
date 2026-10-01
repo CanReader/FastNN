@@ -35,18 +35,27 @@ pub struct Ema {
 impl Ema {
     /// Typical decays are 0.99–0.9999; higher = smoother but slower to follow.
     pub fn new(params: Vec<Param>, decay: f32) -> Ema {
-        assert!((0.0..1.0).contains(&decay), "decay must be in [0, 1), got {decay}");
+        assert!(
+            (0.0..1.0).contains(&decay),
+            "decay must be in [0, 1), got {decay}"
+        );
         // Seeding the shadow at the current weights (not zero) avoids a long
         // bias toward the origin that 1/(1−d) steps would otherwise carry.
         let shadow = params.iter().map(|p| p.value().detach()).collect();
-        Ema { params, shadow, decay }
+        Ema {
+            params,
+            shadow,
+            decay,
+        }
     }
 
     /// Fold the current weights into the average. Call after `opt.step()`.
     pub fn update(&mut self) {
         for (shadow, param) in self.shadow.iter_mut().zip(&self.params) {
             let value = param.value();
-            *shadow = shadow.mul_scalar(self.decay).add(&value.mul_scalar(1.0 - self.decay));
+            *shadow = shadow
+                .mul_scalar(self.decay)
+                .add(&value.mul_scalar(1.0 - self.decay));
         }
     }
 
@@ -93,8 +102,16 @@ mod tests {
         param.set_value(Tensor::from_vec(vec![7.0], &[1]));
 
         ema.swap();
-        assert_eq!(param.value().to_vec()[0], 5.0, "first swap shows the average");
+        assert_eq!(
+            param.value().to_vec()[0],
+            5.0,
+            "first swap shows the average"
+        );
         ema.swap();
-        assert_eq!(param.value().to_vec()[0], 7.0, "second swap restores training weights");
+        assert_eq!(
+            param.value().to_vec()[0],
+            7.0,
+            "second swap restores training weights"
+        );
     }
 }

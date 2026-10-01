@@ -48,9 +48,10 @@ impl CudaBuffer {
     /// Allocate `len` floats set to zero.
     pub fn zeros(len: usize) -> Result<Self> {
         let buf = Self::new(len)?;
-        check(unsafe { ffi::fastnn_cuda_memset(buf.ptr, 0, len * F32) }, || {
-            "memset failed".into()
-        })?;
+        check(
+            unsafe { ffi::fastnn_cuda_memset(buf.ptr, 0, len * F32) },
+            || "memset failed".into(),
+        )?;
         Ok(buf)
     }
 
@@ -63,7 +64,12 @@ impl CudaBuffer {
 
     /// Copy host memory into this buffer. `data` must not be longer than the buffer.
     pub fn upload(&self, data: &[f32]) -> Result<()> {
-        assert!(data.len() <= self.len, "upload: {} floats into a buffer of {}", data.len(), self.len);
+        assert!(
+            data.len() <= self.len,
+            "upload: {} floats into a buffer of {}",
+            data.len(),
+            self.len
+        );
         check(
             unsafe { ffi::fastnn_cuda_memcpy_h2d(self.ptr, data.as_ptr(), data.len() * F32) },
             || "host-to-device copy failed".into(),
@@ -82,7 +88,12 @@ impl CudaBuffer {
 
     /// Copy `src` into this buffer on-device.
     pub fn copy_from(&self, src: &CudaBuffer) -> Result<()> {
-        assert!(src.len <= self.len, "copy_from: {} floats into a buffer of {}", src.len, self.len);
+        assert!(
+            src.len <= self.len,
+            "copy_from: {} floats into a buffer of {}",
+            src.len,
+            self.len
+        );
         check(
             unsafe { ffi::fastnn_cuda_memcpy_d2d(self.ptr, src.ptr, src.len * F32) },
             || "device-to-device copy failed".into(),
@@ -130,16 +141,26 @@ impl fmt::Debug for CudaBuffer {
 }
 
 fn check(code: std::ffi::c_int, msg: impl FnOnce() -> String) -> Result<()> {
-    if code == 0 { Ok(()) } else { Err(Error::Cuda(msg())) }
+    if code == 0 {
+        Ok(())
+    } else {
+        Err(Error::Cuda(msg()))
+    }
 }
 
 /// One `cudaMalloc`, with no cache involved.
 fn raw_alloc(len: usize) -> Result<*mut f32> {
     let mut ptr: *mut f32 = std::ptr::null_mut();
-    check(unsafe { ffi::fastnn_cuda_malloc(&mut ptr, len * F32) }, || {
-        let (free, total) = super::memory_info();
-        format!("out of memory: wanted {} bytes, {free} of {total} free", len * F32)
-    })?;
+    check(
+        unsafe { ffi::fastnn_cuda_malloc(&mut ptr, len * F32) },
+        || {
+            let (free, total) = super::memory_info();
+            format!(
+                "out of memory: wanted {} bytes, {free} of {total} free",
+                len * F32
+            )
+        },
+    )?;
     Ok(ptr)
 }
 
@@ -168,8 +189,13 @@ mod cache {
         if ptr.is_null() {
             return;
         }
-        let Ok(mut guard) = FREE_LIST.lock() else { return };
-        let blocks = guard.get_or_insert_with(HashMap::new).entry(len).or_default();
+        let Ok(mut guard) = FREE_LIST.lock() else {
+            return;
+        };
+        let blocks = guard
+            .get_or_insert_with(HashMap::new)
+            .entry(len)
+            .or_default();
         if blocks.len() < MAX_PER_SIZE {
             blocks.push(Block(ptr));
         } else {
@@ -179,7 +205,9 @@ mod cache {
 
     /// Hand every cached block back to the driver.
     pub(super) fn drain() {
-        let Ok(mut guard) = FREE_LIST.lock() else { return };
+        let Ok(mut guard) = FREE_LIST.lock() else {
+            return;
+        };
         if let Some(map) = guard.as_mut() {
             for (_, blocks) in map.drain() {
                 for b in blocks {

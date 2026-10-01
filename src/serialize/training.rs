@@ -115,7 +115,8 @@ fn expect(file: &Checkpoint, name: &str, shape: &[usize]) -> Result<Tensor> {
         .ok_or_else(|| Error::Checkpoint(format!("checkpoint has no '{name}'")))?;
     if tensor.shape() != shape {
         return Err(Error::Checkpoint(format!(
-            "'{name}' is {:?} in the file but {shape:?} in the model", tensor.shape()
+            "'{name}' is {:?} in the file but {shape:?} in the model",
+            tensor.shape()
         )));
     }
     Ok(tensor.clone())

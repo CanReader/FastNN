@@ -88,7 +88,9 @@ fn layout(c: &mut Criterion) {
     let mut group = c.benchmark_group(format!("layout/{name}"));
 
     let heads = Tensor::randn(&[32, 8, 128, 64]).to(device);
-    group.bench_function("permute_heads", |bench| bench.iter(|| heads.permute(&[0, 2, 1, 3])));
+    group.bench_function("permute_heads", |bench| {
+        bench.iter(|| heads.permute(&[0, 2, 1, 3]))
+    });
 
     let row = Tensor::randn(&[1, 512]).to(device);
     group.bench_function("expand", |bench| bench.iter(|| row.expand(&[1024, 512])));
@@ -130,5 +132,13 @@ fn training_step(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, matmul, matmul_fused, elementwise, reductions, layout, training_step);
+criterion_group!(
+    benches,
+    matmul,
+    matmul_fused,
+    elementwise,
+    reductions,
+    layout,
+    training_step
+);
 criterion_main!(benches);

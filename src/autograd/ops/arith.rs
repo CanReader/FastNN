@@ -80,7 +80,11 @@ pub struct MulScalarBackward {
 
 impl Backward for MulScalarBackward {
     fn backward(&self, grad: &Tensor) -> Vec<Tensor> {
-        vec![if self.factor == 1.0 { grad.clone() } else { grad.mul_scalar(self.factor) }]
+        vec![if self.factor == 1.0 {
+            grad.clone()
+        } else {
+            grad.mul_scalar(self.factor)
+        }]
     }
     fn name(&self) -> &'static str {
         "MulScalar"

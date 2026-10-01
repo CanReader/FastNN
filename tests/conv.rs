@@ -45,7 +45,9 @@ fn conv_transpose_is_the_exact_adjoint_of_conv() {
 #[test]
 fn conv_transpose_upsamples_a_pixel_by_hand() {
     let layer = ConvTranspose2d::with_window(1, 1, Window::square(2, 2, 0), false);
-    layer.weight.set_value(Tensor::from_vec(vec![1.0; 4], &[1, 1, 2, 2]));
+    layer
+        .weight
+        .set_value(Tensor::from_vec(vec![1.0; 4], &[1, 1, 2, 2]));
 
     let out = no_grad(|| layer.forward(&Tensor::from_vec(vec![5.0], &[1, 1, 1, 1])));
     assert_eq!(out.shape(), &[1, 1, 2, 2]);
@@ -57,23 +59,36 @@ fn conv_transpose_upsamples_a_pixel_by_hand() {
 #[test]
 fn depthwise_keeps_channels_separate() {
     let layer = Conv2d::depthwise(2, 1, 1, 0);
-    layer.weight.set_value(Tensor::from_vec(vec![2.0, 3.0], &[2, 1, 1, 1]));
+    layer
+        .weight
+        .set_value(Tensor::from_vec(vec![2.0, 3.0], &[2, 1, 1, 1]));
     if let Some(bias) = &layer.bias {
         bias.set_value(Tensor::zeros(&[2]));
     }
 
     let input = Tensor::from_vec(vec![1.0, 10.0, 100.0, 1000.0], &[1, 2, 1, 2]);
     let out = no_grad(|| layer.forward(&input)).to_vec();
-    assert_eq!(out, vec![2.0, 20.0, 300.0, 3000.0], "channel 0 ×2, channel 1 ×3, no mixing");
+    assert_eq!(
+        out,
+        vec![2.0, 20.0, 300.0, 3000.0],
+        "channel 0 ×2, channel 1 ×3, no mixing"
+    );
 }
 
 /// A dilated kernel reads every d-th input: `out[t] = a·x[t] + b·x[t+2]` for
 /// kernel `[a, b]` at dilation 2, worked by hand on a length-5 sequence.
 #[test]
 fn dilation_stretches_the_kernel_footprint() {
-    let window = Window { kernel: (1, 2), stride: (1, 1), padding: (0, 0), dilation: (1, 2) };
+    let window = Window {
+        kernel: (1, 2),
+        stride: (1, 1),
+        padding: (0, 0),
+        dilation: (1, 2),
+    };
     let layer = Conv2d::with_window(1, 1, window, false);
-    layer.weight.set_value(Tensor::from_vec(vec![10.0, 1.0], &[1, 1, 1, 2]));
+    layer
+        .weight
+        .set_value(Tensor::from_vec(vec![10.0, 1.0], &[1, 1, 1, 2]));
 
     let x = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0], &[1, 1, 1, 5]);
     let out = no_grad(|| layer.forward(&x)).to_vec();
@@ -116,11 +131,21 @@ fn grouped_conv_equals_independent_group_convs() {
     let window = Window::square(3, 1, 1);
     for group in 0..2 {
         let slice = x.narrow(1, group * 2, 2);
-        let kernels = layer.weight.value().narrow(0, group * 3, 3).reshape(&[3, -1]);
+        let kernels = layer
+            .weight
+            .value()
+            .narrow(0, group * 3, 3)
+            .reshape(&[3, -1]);
         let reference = no_grad(|| {
-            kernels
-                .matmul(&slice.im2col(window))
-                .add(&layer.bias.as_ref().unwrap().value().narrow(0, group * 3, 3).reshape(&[1, 3, 1]))
+            kernels.matmul(&slice.im2col(window)).add(
+                &layer
+                    .bias
+                    .as_ref()
+                    .unwrap()
+                    .value()
+                    .narrow(0, group * 3, 3)
+                    .reshape(&[1, 3, 1]),
+            )
         });
 
         let got = out.narrow(1, group * 3, 3).to_vec();
@@ -134,17 +159,40 @@ fn grouped_conv_equals_independent_group_convs() {
 #[test]
 fn gradients_reach_all_conv_variant_parameters() {
     let layers: Vec<(&str, Box<dyn Module>, Tensor)> = vec![
-        ("conv1d", Box::new(Conv1d::new(2, 3, 3, 1, 1)), Tensor::randn(&[1, 2, 6])),
-        ("causal conv1d", Box::new(Conv1d::causal(2, 3, 3, 2)), Tensor::randn(&[1, 2, 6])),
-        ("grouped", Box::new(Conv2d::grouped(4, 4, 3, 1, 1, 2)), Tensor::randn(&[1, 4, 5, 5])),
-        ("transpose2d", Box::new(ConvTranspose2d::new(2, 3, 3, 2, 1)), Tensor::randn(&[1, 2, 4, 4])),
-        ("transpose1d", Box::new(ConvTranspose1d::new(2, 3, 4, 2, 1)), Tensor::randn(&[1, 2, 5])),
+        (
+            "conv1d",
+            Box::new(Conv1d::new(2, 3, 3, 1, 1)),
+            Tensor::randn(&[1, 2, 6]),
+        ),
+        (
+            "causal conv1d",
+            Box::new(Conv1d::causal(2, 3, 3, 2)),
+            Tensor::randn(&[1, 2, 6]),
+        ),
+        (
+            "grouped",
+            Box::new(Conv2d::grouped(4, 4, 3, 1, 1, 2)),
+            Tensor::randn(&[1, 4, 5, 5]),
+        ),
+        (
+            "transpose2d",
+            Box::new(ConvTranspose2d::new(2, 3, 3, 2, 1)),
+            Tensor::randn(&[1, 2, 4, 4]),
+        ),
+        (
+            "transpose1d",
+            Box::new(ConvTranspose1d::new(2, 3, 4, 2, 1)),
+            Tensor::randn(&[1, 2, 5]),
+        ),
     ];
 
     for (name, layer, input) in layers {
         layer.forward(&input).sum().backward();
         for (param_name, param) in layer.named_parameters() {
-            assert!(param.grad().is_some(), "{name}: no gradient reached {param_name}");
+            assert!(
+                param.grad().is_some(),
+                "{name}: no gradient reached {param_name}"
+            );
         }
     }
 }

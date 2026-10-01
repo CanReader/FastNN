@@ -13,7 +13,12 @@ impl Tensor {
     ///
     /// Repeated ids are fine — their gradients add up.
     pub fn index_select(&self, ids: &[usize]) -> Tensor {
-        assert_eq!(self.ndim(), 2, "index_select needs a 2-D table, got {:?}", self.shape());
+        assert_eq!(
+            self.ndim(),
+            2,
+            "index_select needs a 2-D table, got {:?}",
+            self.shape()
+        );
         let (rows, cols) = (self.dim(0), self.dim(1));
         for &id in ids {
             assert!(id < rows, "index_select: row {id} outside 0..{rows}");
@@ -25,7 +30,11 @@ impl Tensor {
                 let ids_buf = kernels::upload_ids(&ids_i32).expect("cuda upload ids");
                 let gathered = kernels::embedding_forward(&ids_buf, weight, ids.len(), cols)
                     .expect("cuda embedding_forward");
-                Tensor::raw(Storage::Cuda(gathered), vec![ids.len(), cols], self.device())
+                Tensor::raw(
+                    Storage::Cuda(gathered),
+                    vec![ids.len(), cols],
+                    self.device(),
+                )
             }
             Storage::Cpu(table) => {
                 let mut data = Vec::with_capacity(ids.len() * cols);

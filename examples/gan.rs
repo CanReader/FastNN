@@ -18,10 +18,12 @@ fn main() {
     let (target_mean, target_std) = (3.0, 0.5);
 
     let generator = Sequential::new()
-        .add(Linear::new(NOISE, 32)).add(Tanh)
+        .add(Linear::new(NOISE, 32))
+        .add(Tanh)
         .add(Linear::new(32, 1));
     let discriminator = Sequential::new()
-        .add(Linear::new(1, 32)).add(LeakyReLU::new(0.2))
+        .add(Linear::new(1, 32))
+        .add(LeakyReLU::new(0.2))
         .add(Linear::new(32, 1));
 
     let mut g_opt = Adam::new(generator.parameters(), 1e-3);
@@ -31,13 +33,16 @@ fn main() {
     let fake_labels = Tensor::from_vec(vec![0.0; BATCH], &[BATCH, 1]);
 
     for step in 0..2000 {
-        let real = Tensor::randn(&[BATCH, 1]).mul_scalar(target_std).add_scalar(target_mean);
+        let real = Tensor::randn(&[BATCH, 1])
+            .mul_scalar(target_std)
+            .add_scalar(target_mean);
         let fake = generator.forward(&Tensor::randn(&[BATCH, NOISE]));
 
         // Discriminator: real → 1, fake → 0. The generator must not receive
         // this gradient, so its samples enter detached.
-        let d_loss = bce_with_logits(&discriminator.forward(&real), &real_labels)
-            .add(&bce_with_logits(&discriminator.forward(&fake.detach()), &fake_labels));
+        let d_loss = bce_with_logits(&discriminator.forward(&real), &real_labels).add(
+            &bce_with_logits(&discriminator.forward(&fake.detach()), &fake_labels),
+        );
         d_opt.zero_grad();
         d_loss.backward();
         d_opt.step();

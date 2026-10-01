@@ -33,7 +33,12 @@ fn gradcheck(name: &str, values: &[Tensor], f: impl Fn(&[Tensor]) -> Tensor) {
     let params: Vec<Param> = values.iter().map(|v| Param::new(v.clone())).collect();
 
     let loss = f(&params.iter().map(|p| p.tensor()).collect::<Vec<_>>());
-    assert_eq!(loss.numel(), 1, "{name}: gradcheck needs a scalar, got {:?}", loss.shape());
+    assert_eq!(
+        loss.numel(),
+        1,
+        "{name}: gradcheck needs a scalar, got {:?}",
+        loss.shape()
+    );
     loss.backward();
 
     for (index, param) in params.iter().enumerate() {
@@ -95,10 +100,18 @@ fn positive(shape: &[usize]) -> Tensor {
 fn arithmetic() {
     let a = sample(&[2, 3]);
 
-    gradcheck("add", &[a.clone(), sample(&[2, 3])], |x| x[0].add(&x[1]).sum());
-    gradcheck("sub", &[a.clone(), sample(&[2, 3])], |x| x[0].sub(&x[1]).sum());
-    gradcheck("mul", &[a.clone(), sample(&[2, 3])], |x| x[0].mul(&x[1]).sum());
-    gradcheck("div", &[a.clone(), positive(&[2, 3])], |x| x[0].div(&x[1]).sum());
+    gradcheck("add", &[a.clone(), sample(&[2, 3])], |x| {
+        x[0].add(&x[1]).sum()
+    });
+    gradcheck("sub", &[a.clone(), sample(&[2, 3])], |x| {
+        x[0].sub(&x[1]).sum()
+    });
+    gradcheck("mul", &[a.clone(), sample(&[2, 3])], |x| {
+        x[0].mul(&x[1]).sum()
+    });
+    gradcheck("div", &[a.clone(), positive(&[2, 3])], |x| {
+        x[0].div(&x[1]).sum()
+    });
     gradcheck("mul_scalar", &[a.clone()], |x| x[0].mul_scalar(-2.5).sum());
     gradcheck("add_scalar", &[a], |x| x[0].add_scalar(3.0).sum());
 }
@@ -107,9 +120,15 @@ fn arithmetic() {
 fn broadcasting_reduces_gradients() {
     // The [1, 3] operand is stretched over 4 rows, so its gradient must be the
     // sum of all four contributions — the classic bias-gradient case.
-    gradcheck("broadcast add", &[sample(&[4, 3]), sample(&[1, 3])], |x| x[0].add(&x[1]).sum());
-    gradcheck("broadcast mul", &[sample(&[4, 3]), sample(&[1, 3])], |x| x[0].mul(&x[1]).sum());
-    gradcheck("broadcast rank", &[sample(&[2, 3]), sample(&[3])], |x| x[0].mul(&x[1]).sum());
+    gradcheck("broadcast add", &[sample(&[4, 3]), sample(&[1, 3])], |x| {
+        x[0].add(&x[1]).sum()
+    });
+    gradcheck("broadcast mul", &[sample(&[4, 3]), sample(&[1, 3])], |x| {
+        x[0].mul(&x[1]).sum()
+    });
+    gradcheck("broadcast rank", &[sample(&[2, 3]), sample(&[3])], |x| {
+        x[0].mul(&x[1]).sum()
+    });
 }
 
 // ── Element-wise maths ───────────────────────────────────────────────────────
@@ -152,18 +171,28 @@ fn softmax_family() {
     // Weighted, not a plain sum: softmax rows total 1 whatever the input, so an
     // unweighted sum has zero gradient and would pass against any rule at all.
     let w = weights.clone();
-    gradcheck("softmax", &[x.clone()], move |x| x[0].softmax().mul(&w).sum());
+    gradcheck("softmax", &[x.clone()], move |x| {
+        x[0].softmax().mul(&w).sum()
+    });
     let w = weights;
-    gradcheck("log_softmax", &[x], move |x| x[0].log_softmax().mul(&w).sum());
+    gradcheck("log_softmax", &[x], move |x| {
+        x[0].log_softmax().mul(&w).sum()
+    });
 }
 
 // ── Matrix multiplication ────────────────────────────────────────────────────
 
 #[test]
 fn matmul_layouts() {
-    gradcheck("matmul", &[sample(&[2, 3]), sample(&[3, 4])], |x| x[0].matmul(&x[1]).sum());
-    gradcheck("matmul_nt", &[sample(&[2, 3]), sample(&[4, 3])], |x| x[0].matmul_nt(&x[1]).sum());
-    gradcheck("matmul_tn", &[sample(&[3, 2]), sample(&[3, 4])], |x| x[0].matmul_tn(&x[1]).sum());
+    gradcheck("matmul", &[sample(&[2, 3]), sample(&[3, 4])], |x| {
+        x[0].matmul(&x[1]).sum()
+    });
+    gradcheck("matmul_nt", &[sample(&[2, 3]), sample(&[4, 3])], |x| {
+        x[0].matmul_nt(&x[1]).sum()
+    });
+    gradcheck("matmul_tn", &[sample(&[3, 2]), sample(&[3, 4])], |x| {
+        x[0].matmul_tn(&x[1]).sum()
+    });
 }
 
 #[test]
@@ -172,9 +201,11 @@ fn matmul_batched() {
         x[0].matmul(&x[1]).sum()
     });
     // A weight shared across the batch: its gradient must sum over both items.
-    gradcheck("shared weight", &[sample(&[3, 4]), sample(&[2, 4, 2])], |x| {
-        x[0].matmul(&x[1]).sum()
-    });
+    gradcheck(
+        "shared weight",
+        &[sample(&[3, 4]), sample(&[2, 4, 2])],
+        |x| x[0].matmul(&x[1]).sum(),
+    );
 }
 
 // ── Reductions ───────────────────────────────────────────────────────────────
@@ -188,9 +219,13 @@ fn reductions() {
     gradcheck("sum_axis 0", &[x.clone()], |x| x[0].sum_axis(0).sum());
 
     let w = sample(&[3]);
-    gradcheck("sum_axis 1", &[x.clone()], move |x| x[0].sum_axis(1).mul(&w).sum());
+    gradcheck("sum_axis 1", &[x.clone()], move |x| {
+        x[0].sum_axis(1).mul(&w).sum()
+    });
     let w = sample(&[3]);
-    gradcheck("mean_axis 1", &[x], move |x| x[0].mean_axis(1).mul(&w).sum());
+    gradcheck("mean_axis 1", &[x], move |x| {
+        x[0].mean_axis(1).mul(&w).sum()
+    });
 }
 
 // ── Views ────────────────────────────────────────────────────────────────────
@@ -200,27 +235,39 @@ fn views() {
     let x = sample(&[2, 3, 4]);
 
     let w = sample(&[24]);
-    gradcheck("reshape", &[x.clone()], move |x| x[0].reshape(&[-1]).mul(&w).sum());
+    gradcheck("reshape", &[x.clone()], move |x| {
+        x[0].reshape(&[-1]).mul(&w).sum()
+    });
 
     // Weighted so the reordering matters: a plain sum is invariant to any
     // permutation and would pass even if the inverse were computed wrongly.
     let w = sample(&[4, 3, 2]);
-    gradcheck("permute", &[x.clone()], move |x| x[0].permute(&[2, 1, 0]).mul(&w).sum());
+    gradcheck("permute", &[x.clone()], move |x| {
+        x[0].permute(&[2, 1, 0]).mul(&w).sum()
+    });
 
     let w = sample(&[2, 4, 3]);
-    gradcheck("transpose", &[x.clone()], move |x| x[0].transpose().mul(&w).sum());
+    gradcheck("transpose", &[x.clone()], move |x| {
+        x[0].transpose().mul(&w).sum()
+    });
 
     let w = sample(&[4, 3]);
-    gradcheck("expand", &[sample(&[1, 3])], move |x| x[0].expand(&[4, 3]).mul(&w).sum());
+    gradcheck("expand", &[sample(&[1, 3])], move |x| {
+        x[0].expand(&[4, 3]).mul(&w).sum()
+    });
 
-    gradcheck("squeeze/unsqueeze", &[x], |x| x[0].unsqueeze(1).squeeze(1).sum());
+    gradcheck("squeeze/unsqueeze", &[x], |x| {
+        x[0].unsqueeze(1).squeeze(1).sum()
+    });
 }
 
 #[test]
 fn narrow_and_join() {
     // Only part of the input reaches the loss; the rest must get exactly zero.
     let w = sample(&[2, 3]);
-    gradcheck("narrow", &[sample(&[2, 6])], move |x| x[0].narrow(1, 2, 3).mul(&w).sum());
+    gradcheck("narrow", &[sample(&[2, 6])], move |x| {
+        x[0].narrow(1, 2, 3).mul(&w).sum()
+    });
 
     let w = sample(&[2, 9]);
     gradcheck("cat", &[sample(&[2, 4]), sample(&[2, 5])], move |x| {
@@ -298,7 +345,11 @@ fn normalization() {
     let w = sample(&[2, 2, 2, 2]);
     gradcheck(
         "batch_norm2d",
-        &[sample(&[2, 2, 2, 2]), Tensor::ones(&[2]), Tensor::zeros(&[2])],
+        &[
+            sample(&[2, 2, 2, 2]),
+            Tensor::ones(&[2]),
+            Tensor::zeros(&[2]),
+        ],
         move |x| x[0].batch_norm2d(&x[1], &x[2], 1e-5).0.mul(&w).sum(),
     );
 
@@ -313,7 +364,9 @@ fn normalization() {
 
 #[test]
 fn losses() {
-    gradcheck("cross_entropy", &[sample(&[3, 4])], |x| cross_entropy(&x[0], &[0, 2, 3]));
+    gradcheck("cross_entropy", &[sample(&[3, 4])], |x| {
+        cross_entropy(&x[0], &[0, 2, 3])
+    });
 
     let target = sample(&[3, 4]);
     let t = target.clone();
@@ -323,11 +376,15 @@ fn losses() {
 
     let labels = Tensor::from_vec(vec![1.0, 0.0, 1.0, 0.0, 0.0, 1.0], &[2, 3]);
     let t = labels.clone();
-    gradcheck("bce", &[Tensor::full(&[2, 3], 0.5).add(&sample(&[2, 3]).mul_scalar(0.1))], move |x| {
-        bce(&x[0], &t)
-    });
+    gradcheck(
+        "bce",
+        &[Tensor::full(&[2, 3], 0.5).add(&sample(&[2, 3]).mul_scalar(0.1))],
+        move |x| bce(&x[0], &t),
+    );
     let t = labels;
-    gradcheck("bce_with_logits", &[sample(&[2, 3])], move |x| bce_with_logits(&x[0], &t));
+    gradcheck("bce_with_logits", &[sample(&[2, 3])], move |x| {
+        bce_with_logits(&x[0], &t)
+    });
 }
 
 // ── Whole layers ─────────────────────────────────────────────────────────────
@@ -354,7 +411,10 @@ fn a_full_model_trains() {
     }
     let after = cross_entropy(&model.forward(&inputs), &targets).item();
 
-    assert!(after < before * 0.5, "loss went {before} -> {after}, expected a clear drop");
+    assert!(
+        after < before * 0.5,
+        "loss went {before} -> {after}, expected a clear drop"
+    );
 }
 
 #[test]
@@ -380,7 +440,10 @@ fn recurrent_layers_are_differentiable() {
     for (name, cell) in cells {
         cell.forward(&x).sum().backward();
         for (param, handle) in cell.named_parameters() {
-            assert!(handle.grad().is_some(), "{name}: no gradient reached {param}");
+            assert!(
+                handle.grad().is_some(),
+                "{name}: no gradient reached {param}"
+            );
         }
     }
 }
@@ -431,7 +494,10 @@ fn no_grad_builds_no_graph() {
 
     assert!(out.grad_fn().is_none());
     out.backward();
-    assert!(param.grad().is_none(), "no_grad should leave nothing to differentiate");
+    assert!(
+        param.grad().is_none(),
+        "no_grad should leave nothing to differentiate"
+    );
 }
 
 #[test]

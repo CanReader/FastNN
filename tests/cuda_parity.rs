@@ -53,7 +53,9 @@ fn gpu() -> Option<Device> {
 
 fn spread(n: usize, low: f32, high: f32) -> Vec<f32> {
     const GOLDEN: f32 = 0.618_034;
-    (0..n).map(|i| low + (high - low) * ((i as f32 + 1.0) * GOLDEN).fract()).collect()
+    (0..n)
+        .map(|i| low + (high - low) * ((i as f32 + 1.0) * GOLDEN).fract())
+        .collect()
 }
 
 fn sample(shape: &[usize]) -> Tensor {
@@ -62,7 +64,13 @@ fn sample(shape: &[usize]) -> Tensor {
 
 #[track_caller]
 fn assert_close(name: &str, cpu: &[f32], cuda: &[f32], tolerance: f32) {
-    assert_eq!(cpu.len(), cuda.len(), "{name}: {} values on CPU, {} on GPU", cpu.len(), cuda.len());
+    assert_eq!(
+        cpu.len(),
+        cuda.len(),
+        "{name}: {} values on CPU, {} on GPU",
+        cpu.len(),
+        cuda.len()
+    );
     for (i, (&want, &got)) in cpu.iter().zip(cuda).enumerate() {
         let scale = 1.0f32.max(want.abs());
         assert!(
@@ -127,8 +135,12 @@ fn elementwise() {
 fn broadcasting_stays_on_device() {
     // The GPU path materialises the expansion rather than falling back to the
     // host; the result must still match the CPU's stride walk.
-    check_forward("broadcast add", &[sample(&[4, 8]), sample(&[1, 8])], |x| x[0].add(&x[1]));
-    check_forward("broadcast rank", &[sample(&[4, 8]), sample(&[8])], |x| x[0].mul(&x[1]));
+    check_forward("broadcast add", &[sample(&[4, 8]), sample(&[1, 8])], |x| {
+        x[0].add(&x[1])
+    });
+    check_forward("broadcast rank", &[sample(&[4, 8]), sample(&[8])], |x| {
+        x[0].mul(&x[1])
+    });
 }
 
 #[test]
@@ -165,16 +177,24 @@ fn softmax() {
 
     // Weighted so the gradient is non-trivial; a plain sum over softmax is
     // constant and its gradient is zero on both devices whatever the kernel does.
-    check_backward("softmax", &[x, weights], |x| x[0].softmax().mul(&x[1]).sum());
+    check_backward("softmax", &[x, weights], |x| {
+        x[0].softmax().mul(&x[1]).sum()
+    });
 }
 
 // ── Matrix multiplication ────────────────────────────────────────────────────
 
 #[test]
 fn gemm_layouts() {
-    check_forward("matmul", &[sample(&[8, 12]), sample(&[12, 6])], |x| x[0].matmul(&x[1]));
-    check_forward("matmul_nt", &[sample(&[8, 12]), sample(&[6, 12])], |x| x[0].matmul_nt(&x[1]));
-    check_forward("matmul_tn", &[sample(&[12, 8]), sample(&[12, 6])], |x| x[0].matmul_tn(&x[1]));
+    check_forward("matmul", &[sample(&[8, 12]), sample(&[12, 6])], |x| {
+        x[0].matmul(&x[1])
+    });
+    check_forward("matmul_nt", &[sample(&[8, 12]), sample(&[6, 12])], |x| {
+        x[0].matmul_nt(&x[1])
+    });
+    check_forward("matmul_tn", &[sample(&[12, 8]), sample(&[12, 6])], |x| {
+        x[0].matmul_tn(&x[1])
+    });
 
     check_backward("matmul", &[sample(&[8, 12]), sample(&[12, 6])], |x| {
         x[0].matmul(&x[1]).sum()
@@ -186,16 +206,22 @@ fn gemm_layouts() {
 
 #[test]
 fn gemm_batched() {
-    check_forward("batched", &[sample(&[4, 8, 12]), sample(&[4, 12, 6])], |x| {
-        x[0].matmul(&x[1])
-    });
-    check_forward("batched nt", &[sample(&[4, 8, 12]), sample(&[4, 6, 12])], |x| {
-        x[0].matmul_nt(&x[1])
-    });
+    check_forward(
+        "batched",
+        &[sample(&[4, 8, 12]), sample(&[4, 12, 6])],
+        |x| x[0].matmul(&x[1]),
+    );
+    check_forward(
+        "batched nt",
+        &[sample(&[4, 8, 12]), sample(&[4, 6, 12])],
+        |x| x[0].matmul_nt(&x[1]),
+    );
     // One side batched, the other shared — how a weight meets a batch of inputs.
-    check_forward("shared weight", &[sample(&[8, 12]), sample(&[4, 12, 6])], |x| {
-        x[0].matmul(&x[1])
-    });
+    check_forward(
+        "shared weight",
+        &[sample(&[8, 12]), sample(&[4, 12, 6])],
+        |x| x[0].matmul(&x[1]),
+    );
 }
 
 // ── Layout ───────────────────────────────────────────────────────────────────
@@ -208,7 +234,9 @@ fn layout_ops() {
     check_forward("permute", &[x.clone()], |x| x[0].permute(&[2, 1, 0]));
     check_forward("transpose", &[x.clone()], |x| x[0].transpose());
     check_forward("expand", &[sample(&[1, 6])], |x| x[0].expand(&[4, 6]));
-    check_backward("permute", &[x, weights], |x| x[0].permute(&[2, 1, 0]).mul(&x[1]).sum());
+    check_backward("permute", &[x, weights], |x| {
+        x[0].permute(&[2, 1, 0]).mul(&x[1]).sum()
+    });
 }
 
 // ── Reductions ───────────────────────────────────────────────────────────────
@@ -221,7 +249,9 @@ fn reductions() {
     check_forward("mean", &[x.clone()], |x| x[0].mean());
     check_forward("sum_axis 0", &[x.clone()], |x| x[0].sum_axis(0));
     check_forward("sum_axis 1", &[x.clone()], |x| x[0].sum_axis(1));
-    check_backward("sum_axis", &[x, sample(&[10])], |x| x[0].sum_axis(0).mul(&x[1]).sum());
+    check_backward("sum_axis", &[x, sample(&[10])], |x| {
+        x[0].sum_axis(0).mul(&x[1]).sum()
+    });
 }
 
 // ── Fused layers ─────────────────────────────────────────────────────────────
@@ -232,9 +262,11 @@ fn layer_norm() {
     let gamma = Tensor::full(&[16], 1.1);
     let beta = Tensor::full(&[16], -0.2);
 
-    check_forward("layer_norm", &[x.clone(), gamma.clone(), beta.clone()], |x| {
-        x[0].layer_norm(&x[1], &x[2], 1e-5)
-    });
+    check_forward(
+        "layer_norm",
+        &[x.clone(), gamma.clone(), beta.clone()],
+        |x| x[0].layer_norm(&x[1], &x[2], 1e-5),
+    );
     // The GPU kernel produces all three gradients in one pass; the CPU path
     // computes them separately. They must agree.
     //
@@ -253,7 +285,9 @@ fn row_reductions_handle_awkward_widths() {
     // 5 and 10 both exercise that; 10 is MNIST's class count.
     for width in [3usize, 5, 7, 10, 17, 31, 100, 257] {
         let x = sample(&[4, width]);
-        check_forward(&format!("softmax width {width}"), &[x.clone()], |x| x[0].softmax());
+        check_forward(&format!("softmax width {width}"), &[x.clone()], |x| {
+            x[0].softmax()
+        });
         check_forward(&format!("log_softmax width {width}"), &[x.clone()], |x| {
             x[0].log_softmax()
         });
@@ -280,9 +314,17 @@ fn attention_matches_across_sequence_lengths() {
         let on_cpu = attention.attend(&x, &x, &x, true).to_vec();
         attention.to_device(device);
         let moved = x.to(device);
-        let on_gpu = attention.attend(&moved, &moved, &moved, true).cpu().to_vec();
+        let on_gpu = attention
+            .attend(&moved, &moved, &moved, true)
+            .cpu()
+            .to_vec();
 
-        assert_close(&format!("attention over {length}"), &on_cpu, &on_gpu, MODEL_TOLERANCE);
+        assert_close(
+            &format!("attention over {length}"),
+            &on_cpu,
+            &on_gpu,
+            MODEL_TOLERANCE,
+        );
     }
 }
 
@@ -291,7 +333,9 @@ fn embedding_lookup() {
     let table = sample(&[10, 8]);
     let weights = sample(&[5, 8]);
 
-    check_forward("index_select", &[table.clone()], |x| x[0].index_select(&[0, 3, 3, 9, 1]));
+    check_forward("index_select", &[table.clone()], |x| {
+        x[0].index_select(&[0, 3, 3, 9, 1])
+    });
     // Row 3 twice: the GPU scatter-add must accumulate, not overwrite.
     check_backward("index_select", &[table, weights], |x| {
         x[0].index_select(&[0, 3, 3, 9, 1]).mul(&x[1]).sum()
@@ -358,7 +402,8 @@ fn convolution_lowering() {
     check_forward("im2col", &[x.clone()], |v| v[0].im2col(window));
     check_backward("im2col", &[x.clone()], |v| {
         let cols = v[0].im2col(window);
-        let weight = Tensor::from_vec(spread(cols.numel(), -0.9, 0.9), cols.shape()).to(cols.device());
+        let weight =
+            Tensor::from_vec(spread(cols.numel(), -0.9, 0.9), cols.shape()).to(cols.device());
         cols.mul(&weight).sum()
     });
 }
@@ -371,7 +416,8 @@ fn dilated_convolution_lowering() {
     check_forward("dilated im2col", &[x.clone()], |v| v[0].im2col(window));
     check_backward("dilated col2im op", &[sample(&[1, 8, 4])], |v| {
         let folded = v[0].col2im(Window::square(2, 2, 0), (4, 4));
-        let weight = Tensor::from_vec(spread(folded.numel(), -0.9, 0.9), folded.shape()).to(folded.device());
+        let weight =
+            Tensor::from_vec(spread(folded.numel(), -0.9, 0.9), folded.shape()).to(folded.device());
         folded.mul(&weight).sum()
     });
 }

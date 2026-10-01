@@ -31,7 +31,13 @@ pub struct Adagrad {
 impl Adagrad {
     pub fn new(params: Vec<Param>, lr: f32) -> Adagrad {
         let n = params.len();
-        Adagrad { params, accumulator: vec![None; n], lr, eps: 1e-10, steps: 0 }
+        Adagrad {
+            params,
+            accumulator: vec![None; n],
+            lr,
+            eps: 1e-10,
+            steps: 0,
+        }
     }
 
     pub fn eps(mut self, eps: f32) -> Adagrad {
@@ -117,7 +123,10 @@ impl Adadelta {
 
     /// Decay of both running averages.
     pub fn rho(mut self, rho: f32) -> Adadelta {
-        assert!((0.0..1.0).contains(&rho), "rho must be in [0, 1), got {rho}");
+        assert!(
+            (0.0..1.0).contains(&rho),
+            "rho must be in [0, 1), got {rho}"
+        );
         self.rho = rho;
         self
     }
@@ -146,7 +155,9 @@ impl Optimizer for Adadelta {
                 Some(delta) => delta.add_scalar(self.eps).sqrt(),
                 None => Tensor::zeros_like(&grad).add_scalar(self.eps.sqrt()),
             };
-            let update = grad.mul(&numerator).div(&square.add_scalar(self.eps).sqrt());
+            let update = grad
+                .mul(&numerator)
+                .div(&square.add_scalar(self.eps).sqrt());
 
             self.delta_avg[index] = Some(blend(previous_delta, &update.square(), self.rho));
             self.square_avg[index] = Some(square);
@@ -197,7 +208,10 @@ mod tests {
         param.set_grad(Tensor::from_vec(vec![2.0], &[1]));
         opt.step();
         let first = -param.value().to_vec()[0];
-        assert!((first - 1.0).abs() < 1e-6, "first step should be lr·g/√g² = 1, got {first}");
+        assert!(
+            (first - 1.0).abs() < 1e-6,
+            "first step should be lr·g/√g² = 1, got {first}"
+        );
 
         param.set_grad(Tensor::from_vec(vec![2.0], &[1]));
         opt.step();
@@ -221,6 +235,9 @@ mod tests {
             opt.step();
         }
         let final_value = param.value().to_vec()[0].abs();
-        assert!(final_value < 5.0 * 0.9, "no progress made: still at {final_value}");
+        assert!(
+            final_value < 5.0 * 0.9,
+            "no progress made: still at {final_value}"
+        );
     }
 }

@@ -17,7 +17,11 @@ fn fused(grad: &Tensor, saved: &Tensor, kernel: ffi::BinaryKernel) -> Option<Ten
         return None;
     };
     let out = kernels::binary(g, s, grad.numel(), kernel).expect("cuda activation backward");
-    Some(Tensor::raw(Storage::Cuda(out), grad.shape().to_vec(), grad.device()))
+    Some(Tensor::raw(
+        Storage::Cuda(out),
+        grad.shape().to_vec(),
+        grad.device(),
+    ))
 }
 
 /// `d relu(x) = g · [x > 0]`.
@@ -43,10 +47,11 @@ pub struct SigmoidBackward {
 
 impl Backward for SigmoidBackward {
     fn backward(&self, grad: &Tensor) -> Vec<Tensor> {
-        let out = fused(grad, &self.output, ffi::fastnn_cuda_sigmoid_backward).unwrap_or_else(|| {
-            let one_minus = self.output.neg().add_scalar(1.0);
-            grad.mul(&self.output.mul(&one_minus))
-        });
+        let out =
+            fused(grad, &self.output, ffi::fastnn_cuda_sigmoid_backward).unwrap_or_else(|| {
+                let one_minus = self.output.neg().add_scalar(1.0);
+                grad.mul(&self.output.mul(&one_minus))
+            });
         vec![out]
     }
     fn name(&self) -> &'static str {
@@ -111,7 +116,13 @@ pub struct LeakyReluBackward {
 impl Backward for LeakyReluBackward {
     fn backward(&self, grad: &Tensor) -> Vec<Tensor> {
         let slope = self.slope;
-        vec![elementwise(grad, &self.input, move |x| if x > 0.0 { 1.0 } else { slope })]
+        vec![elementwise(grad, &self.input, move |x| {
+            if x > 0.0 {
+                1.0
+            } else {
+                slope
+            }
+        })]
     }
     fn name(&self) -> &'static str {
         "LeakyRelu"
@@ -130,7 +141,11 @@ impl Backward for SoftmaxBackward {
 
         if let (Storage::Cuda(g), Storage::Cuda(s)) = (grad.storage(), self.output.storage()) {
             let out = kernels::softmax_backward(g, s, rows, cols).expect("cuda softmax backward");
-            return vec![Tensor::raw(Storage::Cuda(out), grad.shape().to_vec(), grad.device())];
+            return vec![Tensor::raw(
+                Storage::Cuda(out),
+                grad.shape().to_vec(),
+                grad.device(),
+            )];
         }
 
         let (s, g) = (self.output.to_vec(), grad.to_vec());

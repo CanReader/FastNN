@@ -29,7 +29,10 @@ fn mlp_converges_on_xor() {
             break;
         }
     }
-    assert!(loss_value < 0.01, "xor did not converge: final loss {loss_value}");
+    assert!(
+        loss_value < 0.01,
+        "xor did not converge: final loss {loss_value}"
+    );
 }
 
 #[test]
@@ -82,7 +85,10 @@ fn cnn_overfits_a_small_batch() {
             break;
         }
     }
-    assert!(loss_value < 0.05, "cnn did not overfit ten samples: loss {loss_value}");
+    assert!(
+        loss_value < 0.05,
+        "cnn did not overfit ten samples: loss {loss_value}"
+    );
 }
 
 #[test]
@@ -111,7 +117,10 @@ fn lstm_memorizes_a_short_sequence() {
             break;
         }
     }
-    assert!(loss_value < 0.05, "lstm did not memorize: loss {loss_value}");
+    assert!(
+        loss_value < 0.05,
+        "lstm did not memorize: loss {loss_value}"
+    );
 }
 
 #[test]
@@ -136,14 +145,20 @@ fn transformer_overfits_a_small_batch() {
             break;
         }
     }
-    assert!(loss_value < 0.05, "transformer did not overfit: loss {loss_value}");
+    assert!(
+        loss_value < 0.05,
+        "transformer did not overfit: loss {loss_value}"
+    );
 }
 
 #[test]
 fn saved_model_predicts_identically_after_reload() {
     manual_seed(8);
     let inputs = Tensor::randn(&[4, 6]);
-    let model = Sequential::new().add(Linear::new(6, 12)).add(ReLU).add(Linear::new(12, 3));
+    let model = Sequential::new()
+        .add(Linear::new(6, 12))
+        .add(ReLU)
+        .add(Linear::new(12, 3));
 
     // A few steps first, so the weights are not just their initialization.
     let targets = Tensor::zeros(&[4, 3]);
@@ -155,11 +170,17 @@ fn saved_model_predicts_identically_after_reload() {
         opt.step();
     }
     let before = no_grad(|| model.forward(&inputs)).to_vec();
-    assert!(before.iter().all(|v| v.is_finite()), "training diverged before the roundtrip");
+    assert!(
+        before.iter().all(|v| v.is_finite()),
+        "training diverged before the roundtrip"
+    );
 
     let path = std::env::temp_dir().join("fastnn_roundtrip_test.fdl");
     save(&model, &path).unwrap();
-    let reloaded = Sequential::new().add(Linear::new(6, 12)).add(ReLU).add(Linear::new(12, 3));
+    let reloaded = Sequential::new()
+        .add(Linear::new(6, 12))
+        .add(ReLU)
+        .add(Linear::new(12, 3));
     load(&reloaded, &path).unwrap();
     std::fs::remove_file(&path).ok();
 
@@ -174,7 +195,10 @@ fn clip_grad_value_bounds_every_gradient_element() {
 
     clip_grad_value(std::slice::from_ref(&param), 1.5);
     let grad = param.grad().unwrap().to_vec();
-    assert!(grad.iter().all(|g| g.abs() <= 1.5), "gradient escaped the clamp: {grad:?}");
+    assert!(
+        grad.iter().all(|g| g.abs() <= 1.5),
+        "gradient escaped the clamp: {grad:?}"
+    );
 }
 
 /// Every optimizer, one benchmark: recover a linear map by least squares.
@@ -190,12 +214,16 @@ fn every_optimizer_minimizes_least_squares() {
         ("adam", |p| Box::new(Adam::new(p, 0.05))),
         ("adamw", |p| Box::new(AdamW::new(p, 0.05))),
         ("rmsprop", |p| Box::new(RMSprop::new(p, 0.01))),
-        ("rmsprop-centered", |p| Box::new(RMSprop::new(p, 0.01).momentum(0.9).centered())),
+        ("rmsprop-centered", |p| {
+            Box::new(RMSprop::new(p, 0.01).momentum(0.9).centered())
+        }),
         ("adagrad", |p| Box::new(Adagrad::new(p, 0.5))),
         ("adadelta", |p| Box::new(Adadelta::new(p))),
         ("radam", |p| Box::new(RAdam::new(p, 0.05))),
         ("lion", |p| Box::new(Lion::new(p, 0.005))),
-        ("lookahead-adam", |p| Box::new(Lookahead::new(Adam::new(p, 0.05), 5, 0.5))),
+        ("lookahead-adam", |p| {
+            Box::new(Lookahead::new(Adam::new(p, 0.05), 5, 0.5))
+        }),
     ];
 
     for (name, make) in recipes {
@@ -218,6 +246,9 @@ fn every_optimizer_minimizes_least_squares() {
                 break;
             }
         }
-        assert!(loss_value < 1e-3, "{name} failed to converge: loss {loss_value}");
+        assert!(
+            loss_value < 1e-3,
+            "{name} failed to converge: loss {loss_value}"
+        );
     }
 }

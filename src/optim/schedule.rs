@@ -64,7 +64,11 @@ pub struct CosineAnnealing {
 
 impl CosineAnnealing {
     pub fn new(base: f32, total: usize) -> CosineAnnealing {
-        CosineAnnealing { base, floor: 0.0, total }
+        CosineAnnealing {
+            base,
+            floor: 0.0,
+            total,
+        }
     }
 
     /// Stop decaying at `floor` instead of zero.

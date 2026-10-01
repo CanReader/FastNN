@@ -44,7 +44,9 @@ pub struct Reshape {
 
 impl Reshape {
     pub fn new(dims: &[i64]) -> Reshape {
-        Reshape { dims: dims.to_vec() }
+        Reshape {
+            dims: dims.to_vec(),
+        }
     }
 }
 

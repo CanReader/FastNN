@@ -67,12 +67,17 @@ struct Dims {
 /// Shared forward for all three layouts, with no graph node attached.
 pub(crate) fn multiply(a: &Tensor, b: &Tensor, layout: Layout) -> Tensor {
     assert_eq!(
-        a.device(), b.device(),
-        "matmul device mismatch: {} and {}", a.device(), b.device()
+        a.device(),
+        b.device(),
+        "matmul device mismatch: {} and {}",
+        a.device(),
+        b.device()
     );
     assert!(
         a.ndim() >= 2 && b.ndim() >= 2,
-        "matmul needs 2+ dimensions, got {:?} and {:?}", a.shape(), b.shape()
+        "matmul needs 2+ dimensions, got {:?} and {:?}",
+        a.shape(),
+        b.shape()
     );
 
     let dims = resolve_dims(a, b, layout);
@@ -97,8 +102,11 @@ pub(crate) fn multiply(a: &Tensor, b: &Tensor, layout: Layout) -> Tensor {
             let (x, y) = match_batches(a, b, &dims);
             multiply(&x, &y, layout)
         }
-        _ => Tensor::from_vec(cpu_gemm(&a.to_vec(), &b.to_vec(), &dims, layout), &out_shape)
-            .to(a.device()),
+        _ => Tensor::from_vec(
+            cpu_gemm(&a.to_vec(), &b.to_vec(), &dims, layout),
+            &out_shape,
+        )
+        .to(a.device()),
     }
 }
 
@@ -116,8 +124,11 @@ fn resolve_dims(a: &Tensor, b: &Tensor, layout: Layout) -> Dims {
         _ => (br, bc),
     };
     assert_eq!(
-        k, k_b,
-        "matmul inner dimension mismatch: {:?} and {:?} under {layout:?}", a.shape(), b.shape()
+        k,
+        k_b,
+        "matmul inner dimension mismatch: {:?} and {:?} under {layout:?}",
+        a.shape(),
+        b.shape()
     );
 
     let a_batch: usize = a.shape()[..a.ndim() - 2].iter().product();
@@ -127,7 +138,14 @@ fn resolve_dims(a: &Tensor, b: &Tensor, layout: Layout) -> Dims {
         "matmul batch mismatch: {a_batch} and {b_batch}"
     );
 
-    Dims { m, n, k, batch: a_batch.max(b_batch), a_batch, b_batch }
+    Dims {
+        m,
+        n,
+        k,
+        batch: a_batch.max(b_batch),
+        a_batch,
+        b_batch,
+    }
 }
 
 /// Tile whichever side has a single batch up to the other's batch count.
@@ -179,7 +197,14 @@ fn cuda_gemm(
 /// `Plain` and `LhsT` accumulate whole rows of `b` at a time, and `RhsT` — the
 /// `q·kᵀ` of every attention score — is a dot product of two contiguous rows.
 fn cpu_gemm(a: &[f32], b: &[f32], dims: &Dims, layout: Layout) -> Vec<f32> {
-    let Dims { m, n, k, batch, a_batch, b_batch } = *dims;
+    let Dims {
+        m,
+        n,
+        k,
+        batch,
+        a_batch,
+        b_batch,
+    } = *dims;
     let (a_stride, b_stride) = (
         if a_batch == 1 { 0 } else { m * k },
         if b_batch == 1 { 0 } else { k * n },
@@ -216,9 +241,13 @@ fn cpu_gemm(a: &[f32], b: &[f32], dims: &Dims, layout: Layout) -> Vec<f32> {
     let mut out = vec![0.0f32; batch * m * n];
     // Tiny multiplies are not worth a trip through the thread pool.
     if batch * m * n * k < 16_384 {
-        out.chunks_mut(n).enumerate().for_each(|(r, row)| fill_row(r, row));
+        out.chunks_mut(n)
+            .enumerate()
+            .for_each(|(r, row)| fill_row(r, row));
     } else {
-        out.par_chunks_mut(n).enumerate().for_each(|(r, row)| fill_row(r, row));
+        out.par_chunks_mut(n)
+            .enumerate()
+            .for_each(|(r, row)| fill_row(r, row));
     }
     out
 }

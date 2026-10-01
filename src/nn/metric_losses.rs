@@ -26,13 +26,20 @@ fn row_distance(a: &Tensor, b: &Tensor) -> Tensor {
 /// Row-wise cosine similarity between `[batch, dim]` tensors → `[batch, 1]`.
 fn row_cosine(a: &Tensor, b: &Tensor) -> Tensor {
     let dot = a.mul(b).sum_axis_keep(1);
-    let norms = a.square().sum_axis_keep(1).sqrt().mul(&b.square().sum_axis_keep(1).sqrt());
+    let norms = a
+        .square()
+        .sum_axis_keep(1)
+        .sqrt()
+        .mul(&b.square().sum_axis_keep(1).sqrt());
     dot.div(&norms.add_scalar(EPS))
 }
 
 /// A `[batch, 1]` selector holding 1.0 where `predicate` holds.
 fn mask(targets: &[f32], predicate: impl Fn(f32) -> bool, device: crate::tensor::Device) -> Tensor {
-    let values: Vec<f32> = targets.iter().map(|&t| if predicate(t) { 1.0 } else { 0.0 }).collect();
+    let values: Vec<f32> = targets
+        .iter()
+        .map(|&t| if predicate(t) { 1.0 } else { 0.0 })
+        .collect();
     Tensor::from_vec(values, &[targets.len(), 1]).to(device)
 }
 
@@ -43,7 +50,13 @@ fn mask(targets: &[f32], predicate: impl Fn(f32) -> bool, device: crate::tensor:
 /// until their similarity drops below the margin — beyond that they stop
 /// mattering, which is what keeps the space from collapsing outward forever.
 pub fn cosine_embedding(a: &Tensor, b: &Tensor, targets: &[f32], margin: f32) -> Tensor {
-    assert_eq!(a.dim(0), targets.len(), "{} rows but {} targets", a.dim(0), targets.len());
+    assert_eq!(
+        a.dim(0),
+        targets.len(),
+        "{} rows but {} targets",
+        a.dim(0),
+        targets.len()
+    );
     let cosine = row_cosine(a, b);
 
     let similar = mask(targets, |t| t > 0.0, a.device());
@@ -59,18 +72,35 @@ pub fn cosine_embedding(a: &Tensor, b: &Tensor, targets: &[f32], margin: f32) ->
 /// The hinge goes silent once the negative is `margin` farther than the
 /// positive — only violating triplets produce gradient, so what you mine into
 /// the batch is what the model learns from.
-pub fn triplet_margin(anchor: &Tensor, positive: &Tensor, negative: &Tensor, margin: f32) -> Tensor {
+pub fn triplet_margin(
+    anchor: &Tensor,
+    positive: &Tensor,
+    negative: &Tensor,
+    margin: f32,
+) -> Tensor {
     let to_positive = row_distance(anchor, positive);
     let to_negative = row_distance(anchor, negative);
-    to_positive.sub(&to_negative).add_scalar(margin).relu().mean()
+    to_positive
+        .sub(&to_negative)
+        .add_scalar(margin)
+        .relu()
+        .mean()
 }
 
 /// Margin ranking loss: `max(0, −t·(x₁ − x₂) + margin)` with `t = ±1` saying
 /// which input should score higher. The SVM hinge, applied to rankings.
 pub fn margin_ranking(x1: &Tensor, x2: &Tensor, targets: &[f32], margin: f32) -> Tensor {
-    assert_eq!(x1.numel(), targets.len(), "{} scores but {} targets", x1.numel(), targets.len());
+    assert_eq!(
+        x1.numel(),
+        targets.len(),
+        "{} scores but {} targets",
+        x1.numel(),
+        targets.len()
+    );
     let sign = Tensor::from_vec(targets.to_vec(), &[targets.len(), 1]).to(x1.device());
-    let difference = x1.reshape(&[targets.len() as i64, 1]).sub(&x2.reshape(&[targets.len() as i64, 1]));
+    let difference = x1
+        .reshape(&[targets.len() as i64, 1])
+        .sub(&x2.reshape(&[targets.len() as i64, 1]));
     difference.mul(&sign).neg().add_scalar(margin).relu().mean()
 }
 
@@ -80,14 +110,25 @@ pub fn margin_ranking(x1: &Tensor, x2: &Tensor, targets: &[f32], margin: f32) ->
 /// Squared distance pulls matching pairs together; non-matching pairs are
 /// pushed quadratically until they clear the margin `m`, then released.
 pub fn contrastive(a: &Tensor, b: &Tensor, targets: &[f32], margin: f32) -> Tensor {
-    assert_eq!(a.dim(0), targets.len(), "{} rows but {} targets", a.dim(0), targets.len());
+    assert_eq!(
+        a.dim(0),
+        targets.len(),
+        "{} rows but {} targets",
+        a.dim(0),
+        targets.len()
+    );
     let distance = row_distance(a, b);
 
     let together = mask(targets, |t| t > 0.0, a.device());
     let apart = mask(targets, |t| t <= 0.0, a.device());
 
     let pull = distance.square().mul(&together);
-    let push = distance.neg().add_scalar(margin).relu().square().mul(&apart);
+    let push = distance
+        .neg()
+        .add_scalar(margin)
+        .relu()
+        .square()
+        .mul(&apart);
     pull.add(&push).mean()
 }
 
@@ -99,7 +140,10 @@ pub fn contrastive(a: &Tensor, b: &Tensor, targets: &[f32], margin: f32) -> Tens
 /// every other row serves as a free negative, and the effective task gets
 /// harder as the batch grows. Low `τ` sharpens the contrast; 0.07 is typical.
 pub fn info_nce(queries: &Tensor, keys: &Tensor, temperature: f32) -> Tensor {
-    assert!(temperature > 0.0, "temperature must be positive, got {temperature}");
+    assert!(
+        temperature > 0.0,
+        "temperature must be positive, got {temperature}"
+    );
     let batch = queries.dim(0);
 
     let normalize = |x: &Tensor| x.div(&x.square().sum_axis_keep(1).sqrt().add_scalar(EPS));

@@ -49,8 +49,11 @@ impl TensorDataset {
     /// Both tensors must agree on their first dimension.
     pub fn new(inputs: &Tensor, targets: &Tensor) -> TensorDataset {
         assert_eq!(
-            inputs.dim(0), targets.dim(0),
-            "TensorDataset: {} inputs but {} targets", inputs.dim(0), targets.dim(0)
+            inputs.dim(0),
+            targets.dim(0),
+            "TensorDataset: {} inputs but {} targets",
+            inputs.dim(0),
+            targets.dim(0)
         );
         TensorDataset {
             len: inputs.dim(0),
@@ -83,7 +86,11 @@ impl Dataset for TensorDataset {
 
 /// Everything after the batch dimension, or `[1]` for a flat tensor of labels.
 fn item_shape(t: &Tensor) -> Vec<usize> {
-    if t.ndim() <= 1 { vec![1] } else { t.shape()[1..].to_vec() }
+    if t.ndim() <= 1 {
+        vec![1]
+    } else {
+        t.shape()[1..].to_vec()
+    }
 }
 
 fn copy_item(source: &[f32], index: usize, out: &mut [f32]) {

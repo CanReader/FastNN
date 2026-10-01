@@ -22,18 +22,37 @@ pub struct Conv2d {
 
 impl Conv2d {
     /// A square kernel with the given stride and padding.
-    pub fn new(in_channels: usize, out_channels: usize, kernel: usize, stride: usize, padding: usize) -> Conv2d {
-        Conv2d::with_window(in_channels, out_channels, Window::square(kernel, stride, padding), true)
+    pub fn new(
+        in_channels: usize,
+        out_channels: usize,
+        kernel: usize,
+        stride: usize,
+        padding: usize,
+    ) -> Conv2d {
+        Conv2d::with_window(
+            in_channels,
+            out_channels,
+            Window::square(kernel, stride, padding),
+            true,
+        )
     }
 
     /// `kernel × kernel`, stride 1, padded to preserve the spatial size.
     pub fn same(in_channels: usize, out_channels: usize, kernel: usize) -> Conv2d {
-        assert!(kernel % 2 == 1, "same-padding needs an odd kernel, got {kernel}");
+        assert!(
+            kernel % 2 == 1,
+            "same-padding needs an odd kernel, got {kernel}"
+        );
         Conv2d::new(in_channels, out_channels, kernel, 1, kernel / 2)
     }
 
     /// Full control over the window and whether there is a bias.
-    pub fn with_window(in_channels: usize, out_channels: usize, window: Window, bias: bool) -> Conv2d {
+    pub fn with_window(
+        in_channels: usize,
+        out_channels: usize,
+        window: Window,
+        bias: bool,
+    ) -> Conv2d {
         Conv2d::build(in_channels, out_channels, window, bias, 1)
     }
 
@@ -50,7 +69,13 @@ impl Conv2d {
         padding: usize,
         groups: usize,
     ) -> Conv2d {
-        Conv2d::build(in_channels, out_channels, Window::square(kernel, stride, padding), true, groups)
+        Conv2d::build(
+            in_channels,
+            out_channels,
+            Window::square(kernel, stride, padding),
+            true,
+            groups,
+        )
     }
 
     /// One filter per channel — `groups == channels`, the spatial half of a
@@ -60,10 +85,24 @@ impl Conv2d {
         Conv2d::grouped(channels, channels, kernel, stride, padding, channels)
     }
 
-    fn build(in_channels: usize, out_channels: usize, window: Window, bias: bool, groups: usize) -> Conv2d {
+    fn build(
+        in_channels: usize,
+        out_channels: usize,
+        window: Window,
+        bias: bool,
+        groups: usize,
+    ) -> Conv2d {
         assert!(groups >= 1, "groups must be at least 1");
-        assert_eq!(in_channels % groups, 0, "{in_channels} input channels do not split into {groups} groups");
-        assert_eq!(out_channels % groups, 0, "{out_channels} output channels do not split into {groups} groups");
+        assert_eq!(
+            in_channels % groups,
+            0,
+            "{in_channels} input channels do not split into {groups} groups"
+        );
+        assert_eq!(
+            out_channels % groups,
+            0,
+            "{out_channels} output channels do not split into {groups} groups"
+        );
 
         let (kh, kw) = window.kernel;
         let fan_in = (in_channels / groups) * kh * kw;
@@ -91,10 +130,18 @@ impl Conv2d {
 
 impl Module for Conv2d {
     fn forward(&self, input: &Tensor) -> Tensor {
-        assert_eq!(input.ndim(), 4, "Conv2d expects [N, C, H, W], got {:?}", input.shape());
         assert_eq!(
-            input.dim(1), self.in_channels,
-            "Conv2d expects {} channels, got {:?}", self.in_channels, input.shape()
+            input.ndim(),
+            4,
+            "Conv2d expects [N, C, H, W], got {:?}",
+            input.shape()
+        );
+        assert_eq!(
+            input.dim(1),
+            self.in_channels,
+            "Conv2d expects {} channels, got {:?}",
+            self.in_channels,
+            input.shape()
         );
 
         let (batch, height, width) = (input.dim(0), input.dim(2), input.dim(3));
@@ -108,7 +155,10 @@ impl Module for Conv2d {
             let columns = input.im2col(self.window);
             self.weight.tensor().reshape(&[out_c, -1]).matmul(&columns)
         } else {
-            let (in_per, out_per) = (self.in_channels / self.groups, self.out_channels / self.groups);
+            let (in_per, out_per) = (
+                self.in_channels / self.groups,
+                self.out_channels / self.groups,
+            );
             let pieces: Vec<Tensor> = (0..self.groups)
                 .map(|group| {
                     let columns = input.narrow(1, group * in_per, in_per).im2col(self.window);

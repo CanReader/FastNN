@@ -54,7 +54,10 @@ pub trait Module: Send + Sync {
 
     /// Every learnable tensor. Hand this straight to an optimizer.
     fn parameters(&self) -> Vec<Param> {
-        self.named_parameters().into_iter().map(|(_, p)| p).collect()
+        self.named_parameters()
+            .into_iter()
+            .map(|(_, p)| p)
+            .collect()
     }
 
     /// Total number of learnable scalars.
@@ -91,7 +94,10 @@ pub trait Module: Send + Sync {
 
     /// The parameters an optimizer will actually update.
     fn trainable_parameters(&self) -> Vec<Param> {
-        self.parameters().into_iter().filter(Param::is_trainable).collect()
+        self.parameters()
+            .into_iter()
+            .filter(Param::is_trainable)
+            .collect()
     }
 
     /// Discard all accumulated gradients.

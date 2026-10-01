@@ -21,7 +21,10 @@ fn main() {
 
     let mut opt = Adam::new(model.parameters(), 0.05);
 
-    println!("training a {}-parameter MLP on XOR\n", model.num_parameters());
+    println!(
+        "training a {}-parameter MLP on XOR\n",
+        model.num_parameters()
+    );
     for step in 1..=400 {
         let loss = cross_entropy(&model.forward(&inputs), &targets);
 
@@ -40,10 +43,15 @@ fn main() {
 
     println!("\n  a  b  →  predicted  expected");
     for (row, (&predicted, &expected)) in predictions.iter().zip(&targets).enumerate() {
-        let mark = if predicted == expected { "" } else { "  <- wrong" };
+        let mark = if predicted == expected {
+            ""
+        } else {
+            "  <- wrong"
+        };
         println!(
             "  {}  {}  →  {predicted}          {expected}{mark}",
-            values[row * 2], values[row * 2 + 1]
+            values[row * 2],
+            values[row * 2 + 1]
         );
     }
 }

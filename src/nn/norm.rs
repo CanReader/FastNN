@@ -38,14 +38,20 @@ impl LayerNorm {
 impl Module for LayerNorm {
     fn forward(&self, input: &Tensor) -> Tensor {
         assert_eq!(
-            input.last_dim(), self.size,
-            "LayerNorm expects {} features, got {:?}", self.size, input.shape()
+            input.last_dim(),
+            self.size,
+            "LayerNorm expects {} features, got {:?}",
+            self.size,
+            input.shape()
         );
         input.layer_norm(&self.gamma.tensor(), &self.beta.tensor(), self.eps)
     }
 
     fn named_parameters(&self) -> Vec<(String, Param)> {
-        vec![("gamma".into(), self.gamma.clone()), ("beta".into(), self.beta.clone())]
+        vec![
+            ("gamma".into(), self.gamma.clone()),
+            ("beta".into(), self.beta.clone()),
+        ]
     }
 }
 
@@ -61,18 +67,29 @@ pub struct RMSNorm {
 
 impl RMSNorm {
     pub fn new(size: usize) -> RMSNorm {
-        RMSNorm { gamma: Param::new(Tensor::ones(&[size])), size, eps: 1e-6 }
+        RMSNorm {
+            gamma: Param::new(Tensor::ones(&[size])),
+            size,
+            eps: 1e-6,
+        }
     }
 }
 
 impl Module for RMSNorm {
     fn forward(&self, input: &Tensor) -> Tensor {
         assert_eq!(
-            input.last_dim(), self.size,
-            "RMSNorm expects {} features, got {:?}", self.size, input.shape()
+            input.last_dim(),
+            self.size,
+            "RMSNorm expects {} features, got {:?}",
+            self.size,
+            input.shape()
         );
         let axis = input.ndim() - 1;
-        let scale = input.square().mean_axis_keep(axis).add_scalar(self.eps).sqrt();
+        let scale = input
+            .square()
+            .mean_axis_keep(axis)
+            .add_scalar(self.eps)
+            .sqrt();
         input.div(&scale).mul(&self.gamma.tensor())
     }
 
@@ -129,16 +146,21 @@ impl BatchNorm2d {
             Tensor::from_vec(mixed, &[self.channels])
         };
         let device = self.running_mean.value().device();
-        self.running_mean.set_value(blend(self.running_mean.value(), mean).to(device));
-        self.running_var.set_value(blend(self.running_var.value(), var).to(device));
+        self.running_mean
+            .set_value(blend(self.running_mean.value(), mean).to(device));
+        self.running_var
+            .set_value(blend(self.running_var.value(), var).to(device));
     }
 }
 
 impl Module for BatchNorm2d {
     fn forward(&self, input: &Tensor) -> Tensor {
         assert_eq!(
-            input.dim(1), self.channels,
-            "BatchNorm2d expects {} channels, got {:?}", self.channels, input.shape()
+            input.dim(1),
+            self.channels,
+            "BatchNorm2d expects {} channels, got {:?}",
+            self.channels,
+            input.shape()
         );
         let per_channel = [1i64, self.channels as i64, 1, 1];
 
@@ -158,7 +180,10 @@ impl Module for BatchNorm2d {
     }
 
     fn named_parameters(&self) -> Vec<(String, Param)> {
-        vec![("gamma".into(), self.gamma.clone()), ("beta".into(), self.beta.clone())]
+        vec![
+            ("gamma".into(), self.gamma.clone()),
+            ("beta".into(), self.beta.clone()),
+        ]
     }
 
     fn named_buffers(&self) -> Vec<(String, Buffer)> {

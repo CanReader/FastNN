@@ -89,7 +89,10 @@ impl PositionalEncoding {
                 }
             }
         }
-        PositionalEncoding { table: Tensor::from_vec(table, &[max_len, dim]), dim }
+        PositionalEncoding {
+            table: Tensor::from_vec(table, &[max_len, dim]),
+            dim,
+        }
     }
 }
 
@@ -99,7 +102,8 @@ impl Module for PositionalEncoding {
         let sequence = input.dim(1);
         assert!(
             sequence <= self.table.dim(0),
-            "PositionalEncoding: sequence {sequence} exceeds max_len {}", self.table.dim(0)
+            "PositionalEncoding: sequence {sequence} exceeds max_len {}",
+            self.table.dim(0)
         );
         let positions: Vec<usize> = (0..sequence).collect();
         let slice = self

@@ -12,7 +12,9 @@ pub struct MaxPool2d {
 impl MaxPool2d {
     /// A `kernel × kernel` window that does not overlap — the usual downsampler.
     pub fn new(kernel: usize) -> MaxPool2d {
-        MaxPool2d { window: Window::square(kernel, kernel, 0) }
+        MaxPool2d {
+            window: Window::square(kernel, kernel, 0),
+        }
     }
 
     pub fn with_window(window: Window) -> MaxPool2d {
@@ -33,7 +35,9 @@ pub struct AvgPool2d {
 
 impl AvgPool2d {
     pub fn new(kernel: usize) -> AvgPool2d {
-        AvgPool2d { window: Window::square(kernel, kernel, 0) }
+        AvgPool2d {
+            window: Window::square(kernel, kernel, 0),
+        }
     }
 
     pub fn with_window(window: Window) -> AvgPool2d {

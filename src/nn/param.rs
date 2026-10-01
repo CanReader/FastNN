@@ -86,7 +86,8 @@ impl Param {
     /// Replace the value. Every handle sees the change; the gradient is untouched.
     pub fn set_value(&self, value: Tensor) {
         assert_eq!(
-            value.shape(), self.value.read().unwrap().shape(),
+            value.shape(),
+            self.value.read().unwrap().shape(),
             "set_value: shape must not change"
         );
         *self.value.write().unwrap() = value.detach();
@@ -146,7 +147,9 @@ pub struct Buffer {
 
 impl Buffer {
     pub fn new(value: Tensor) -> Buffer {
-        Buffer { value: Arc::new(RwLock::new(value.detach())) }
+        Buffer {
+            value: Arc::new(RwLock::new(value.detach())),
+        }
     }
 
     pub fn value(&self) -> Tensor {

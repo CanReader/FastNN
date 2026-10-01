@@ -4,7 +4,9 @@
 //! only changes the shape vector) while `permute`, `expand`, and `cat` write a
 //! new buffer.
 
-use crate::autograd::ops::view::{CatBackward, ExpandBackward, NarrowBackward, PermuteBackward, ReshapeBackward};
+use crate::autograd::ops::view::{
+    CatBackward, ExpandBackward, NarrowBackward, PermuteBackward, ReshapeBackward,
+};
 use crate::cuda::kernels;
 use crate::tensor::shape;
 use crate::tensor::storage::Storage;
@@ -36,7 +38,11 @@ impl Tensor {
 
     /// Insert a dimension of size 1 at `axis`.
     pub fn unsqueeze(&self, axis: usize) -> Tensor {
-        assert!(axis <= self.ndim(), "unsqueeze: axis {axis} past shape {:?}", self.shape());
+        assert!(
+            axis <= self.ndim(),
+            "unsqueeze: axis {axis} past shape {:?}",
+            self.shape()
+        );
         let mut dims: Vec<i64> = self.shape().iter().map(|&d| d as i64).collect();
         dims.insert(axis, 1);
         self.reshape(&dims)
@@ -45,8 +51,11 @@ impl Tensor {
     /// Drop the dimension at `axis`, which must have size 1.
     pub fn squeeze(&self, axis: usize) -> Tensor {
         assert_eq!(
-            self.dim(axis), 1,
-            "squeeze: axis {axis} has size {} in shape {:?}", self.dim(axis), self.shape()
+            self.dim(axis),
+            1,
+            "squeeze: axis {axis} has size {} in shape {:?}",
+            self.dim(axis),
+            self.shape()
         );
         let mut dims: Vec<i64> = self.shape().iter().map(|&d| d as i64).collect();
         dims.remove(axis);
@@ -58,13 +67,23 @@ impl Tensor {
 
     /// Drop every dimension of size 1.
     pub fn squeeze_all(&self) -> Tensor {
-        let dims: Vec<i64> = self.shape().iter().filter(|&&d| d != 1).map(|&d| d as i64).collect();
+        let dims: Vec<i64> = self
+            .shape()
+            .iter()
+            .filter(|&&d| d != 1)
+            .map(|&d| d as i64)
+            .collect();
         self.reshape(if dims.is_empty() { &[1] } else { &dims })
     }
 
     /// Reorder dimensions: output dimension `i` is input dimension `order[i]`.
     pub fn permute(&self, order: &[usize]) -> Tensor {
-        assert_eq!(order.len(), self.ndim(), "permute: {order:?} does not cover shape {:?}", self.shape());
+        assert_eq!(
+            order.len(),
+            self.ndim(),
+            "permute: {order:?} does not cover shape {:?}",
+            self.shape()
+        );
         let out_shape: Vec<usize> = order.iter().map(|&d| self.dim(d)).collect();
         let in_strides = shape::strides_for(self.shape());
         let order = order.to_vec();
@@ -75,7 +94,11 @@ impl Tensor {
 
     /// Swap the last two dimensions.
     pub fn transpose(&self) -> Tensor {
-        assert!(self.ndim() >= 2, "transpose needs 2+ dimensions, got {:?}", self.shape());
+        assert!(
+            self.ndim() >= 2,
+            "transpose needs 2+ dimensions, got {:?}",
+            self.shape()
+        );
         let n = self.ndim();
         let mut order: Vec<usize> = (0..n).collect();
         order.swap(n - 2, n - 1);
@@ -89,14 +112,24 @@ impl Tensor {
 
     /// Repeat size-1 dimensions out to `to`, which must have the same rank.
     pub fn expand(&self, to: &[usize]) -> Tensor {
-        assert_eq!(to.len(), self.ndim(), "expand: {to:?} does not match rank of {:?}", self.shape());
+        assert_eq!(
+            to.len(),
+            self.ndim(),
+            "expand: {to:?} does not match rank of {:?}",
+            self.shape()
+        );
         let from = self.shape().to_vec();
         expanded(self, to).with_grad(&[self], || ExpandBackward { shape: from })
     }
 
     /// Tile each dimension `times[i]` times.
     pub fn repeat(&self, times: &[usize]) -> Tensor {
-        let to: Vec<usize> = self.shape().iter().zip(times).map(|(&d, &n)| d * n).collect();
+        let to: Vec<usize> = self
+            .shape()
+            .iter()
+            .zip(times)
+            .map(|(&d, &n)| d * n)
+            .collect();
         self.expand(&to)
     }
 
@@ -105,7 +138,9 @@ impl Tensor {
         let (outer, size, inner) = shape::split_at_axis(self.shape(), axis);
         assert!(
             start + len <= size,
-            "narrow: {start}..{} outside axis {axis} of shape {:?}", start + len, self.shape()
+            "narrow: {start}..{} outside axis {axis} of shape {:?}",
+            start + len,
+            self.shape()
         );
 
         let src = self.to_vec();
@@ -121,7 +156,11 @@ impl Tensor {
 
         Tensor::from_vec(data, &out_shape)
             .to(self.device())
-            .with_grad(&[self], || NarrowBackward { shape: in_shape, axis, start })
+            .with_grad(&[self], || NarrowBackward {
+                shape: in_shape,
+                axis,
+                start,
+            })
     }
 
     /// Join tensors along an existing dimension. All other dimensions must match.
@@ -132,11 +171,19 @@ impl Tensor {
         let mut out_shape = first.shape().to_vec();
         out_shape[axis] = parts.iter().map(|t| t.dim(axis)).sum();
         for t in parts {
-            assert_eq!(t.ndim(), first.ndim(), "cat: rank mismatch {:?} vs {:?}", t.shape(), first.shape());
+            assert_eq!(
+                t.ndim(),
+                first.ndim(),
+                "cat: rank mismatch {:?} vs {:?}",
+                t.shape(),
+                first.shape()
+            );
             for d in 0..t.ndim() {
                 assert!(
                     d == axis || t.dim(d) == first.dim(d),
-                    "cat: shapes {:?} and {:?} differ outside axis {axis}", t.shape(), first.shape()
+                    "cat: shapes {:?} and {:?} differ outside axis {axis}",
+                    t.shape(),
+                    first.shape()
                 );
             }
         }

@@ -22,7 +22,11 @@ pub fn init(device: usize) -> Result<()> {
     static INIT: OnceLock<std::result::Result<(), String>> = OnceLock::new();
     INIT.get_or_init(|| {
         let code = unsafe { ffi::fastnn_cuda_init(device as i32) };
-        if code == 0 { Ok(()) } else { Err(format!("could not initialise device {device}")) }
+        if code == 0 {
+            Ok(())
+        } else {
+            Err(format!("could not initialise device {device}"))
+        }
     })
     .clone()
     .map_err(Error::Cuda)

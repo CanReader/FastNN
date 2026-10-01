@@ -54,7 +54,9 @@ impl Sequential {
 
 impl Module for Sequential {
     fn forward(&self, input: &Tensor) -> Tensor {
-        self.layers.iter().fold(input.clone(), |x, layer| layer.forward(&x))
+        self.layers
+            .iter()
+            .fold(input.clone(), |x, layer| layer.forward(&x))
     }
 
     fn named_parameters(&self) -> Vec<(String, Param)> {

@@ -16,8 +16,9 @@ use super::unary_op;
 impl Tensor {
     /// `max(0, x)`.
     pub fn relu(&self) -> Tensor {
-        unary_op(self, |x| x.max(0.0), ffi::fastnn_cuda_relu)
-            .with_grad(&[self], || ReluBackward { input: self.detach() })
+        unary_op(self, |x| x.max(0.0), ffi::fastnn_cuda_relu).with_grad(&[self], || ReluBackward {
+            input: self.detach(),
+        })
     }
 
     /// `1 / (1 + e^-x)`.
@@ -36,14 +37,18 @@ impl Tensor {
 
     /// Exact GELU, `x · Φ(x)` — the transformer default.
     pub fn gelu(&self) -> Tensor {
-        unary_op(self, gelu_scalar, ffi::fastnn_cuda_gelu)
-            .with_grad(&[self], || GeluBackward { input: self.detach() })
+        unary_op(self, gelu_scalar, ffi::fastnn_cuda_gelu).with_grad(&[self], || GeluBackward {
+            input: self.detach(),
+        })
     }
 
     /// SiLU / swish, `x · sigmoid(x)`.
     pub fn silu(&self) -> Tensor {
-        unary_op(self, |x| x * sigmoid_scalar(x), ffi::fastnn_cuda_silu)
-            .with_grad(&[self], || SiluBackward { input: self.detach() })
+        unary_op(self, |x| x * sigmoid_scalar(x), ffi::fastnn_cuda_silu).with_grad(&[self], || {
+            SiluBackward {
+                input: self.detach(),
+            }
+        })
     }
 
     /// ReLU with a non-zero slope for negative inputs.
@@ -58,7 +63,10 @@ impl Tensor {
                 Tensor::raw(Storage::Cuda(out), self.shape().to_vec(), self.device())
             }
         };
-        out.with_grad(&[self], || LeakyReluBackward { input: self.detach(), slope })
+        out.with_grad(&[self], || LeakyReluBackward {
+            input: self.detach(),
+            slope,
+        })
     }
 
     /// Softmax over the last dimension.

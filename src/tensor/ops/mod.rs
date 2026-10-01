@@ -79,8 +79,11 @@ pub(crate) fn binary_op(
     gpu: ffi::BinaryKernel,
 ) -> Tensor {
     assert_eq!(
-        a.device(), b.device(),
-        "device mismatch: {} and {} — move one with .to()", a.device(), b.device()
+        a.device(),
+        b.device(),
+        "device mismatch: {} and {} — move one with .to()",
+        a.device(),
+        b.device()
     );
 
     if a.shape() != b.shape() {
@@ -150,7 +153,10 @@ pub(crate) fn map(data: &[f32], f: impl Fn(f32) -> f32 + Send + Sync) -> Vec<f32
 pub(crate) fn zip(a: &[f32], b: &[f32], f: impl Fn(f32, f32) -> f32 + Send + Sync) -> Vec<f32> {
     debug_assert_eq!(a.len(), b.len());
     if a.len() >= PARALLEL_THRESHOLD {
-        a.par_iter().zip(b.par_iter()).map(|(&x, &y)| f(x, y)).collect()
+        a.par_iter()
+            .zip(b.par_iter())
+            .map(|(&x, &y)| f(x, y))
+            .collect()
     } else {
         a.iter().zip(b.iter()).map(|(&x, &y)| f(x, y)).collect()
     }

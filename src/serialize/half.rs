@@ -79,7 +79,11 @@ pub fn f32_from_f16(bits: u16) -> f32 {
         // Subnormal: value is mantissa · 2⁻²⁴, always exact in f32.
         (0, m) => {
             let magnitude = m as f32 * f32::from_bits(0x3380_0000); // 2⁻²⁴
-            if sign != 0 { -magnitude } else { magnitude }
+            if sign != 0 {
+                -magnitude
+            } else {
+                magnitude
+            }
         }
         (0x1F, 0) => f32::from_bits(sign | 0x7F80_0000),
         (0x1F, _) => f32::NAN,
@@ -114,13 +118,32 @@ mod tests {
 
     #[test]
     fn representable_values_round_trip_exactly() {
-        for value in [0.0f32, -0.0, 1.0, -2.5, 0.15625, 65504.0, 6.1035156e-5, 5.9604645e-8] {
+        for value in [
+            0.0f32,
+            -0.0,
+            1.0,
+            -2.5,
+            0.15625,
+            65504.0,
+            6.1035156e-5,
+            5.9604645e-8,
+        ] {
             let widened = f32_from_f16(f16_from_f32(value));
-            assert_eq!(widened.to_bits(), value.to_bits(), "f16 round trip of {value}");
+            assert_eq!(
+                widened.to_bits(),
+                value.to_bits(),
+                "f16 round trip of {value}"
+            );
         }
         // bf16 keeps only the top 16 bits, so representable means "low half
         // zero" — constructed from bits to make that property visible.
-        for bits in [0x0000_0000u32, 0xBF80_0000, 0x4049_0000, 0x7E96_0000, 0x8180_0000] {
+        for bits in [
+            0x0000_0000u32,
+            0xBF80_0000,
+            0x4049_0000,
+            0x7E96_0000,
+            0x8180_0000,
+        ] {
             let value = f32::from_bits(bits);
             let widened = f32_from_bf16(bf16_from_f32(value));
             assert_eq!(widened.to_bits(), bits, "bf16 round trip of {value}");
@@ -136,7 +159,10 @@ mod tests {
         // — while 1 + 3·2⁻¹¹ sits between 1 + 2⁻¹⁰ and 1 + 2⁻⁹ and rounds *up*
         // to the even 1 + 2⁻⁹.
         let tie_high = 1.0 + 3.0 * f32::from_bits(0x3A00_0000);
-        assert_eq!(f32_from_f16(f16_from_f32(tie_high)), 1.0 + f32::from_bits(0x3B00_0000));
+        assert_eq!(
+            f32_from_f16(f16_from_f32(tie_high)),
+            1.0 + f32::from_bits(0x3B00_0000)
+        );
 
         // Same rule for bf16 at its own precision: 1 + 2⁻⁸ is a tie, 1.0 is even.
         let tie = 1.0 + f32::from_bits(0x3B80_0000); // 2⁻⁸
@@ -146,7 +172,10 @@ mod tests {
     #[test]
     fn specials_survive() {
         assert_eq!(f32_from_f16(f16_from_f32(f32::INFINITY)), f32::INFINITY);
-        assert_eq!(f32_from_f16(f16_from_f32(f32::NEG_INFINITY)), f32::NEG_INFINITY);
+        assert_eq!(
+            f32_from_f16(f16_from_f32(f32::NEG_INFINITY)),
+            f32::NEG_INFINITY
+        );
         assert!(f32_from_f16(f16_from_f32(f32::NAN)).is_nan());
         assert!(f32_from_bf16(bf16_from_f32(f32::NAN)).is_nan());
 
@@ -154,8 +183,14 @@ mod tests {
         assert_eq!(f32_from_f16(f16_from_f32(1.0e6)), f32::INFINITY);
         assert_eq!(f32_from_f16(f16_from_f32(-1.0e6)), f32::NEG_INFINITY);
         // Values below half the smallest subnormal flush to signed zero.
-        assert_eq!(f32_from_f16(f16_from_f32(1.0e-9)).to_bits(), 0.0f32.to_bits());
-        assert_eq!(f32_from_f16(f16_from_f32(-1.0e-9)).to_bits(), (-0.0f32).to_bits());
+        assert_eq!(
+            f32_from_f16(f16_from_f32(1.0e-9)).to_bits(),
+            0.0f32.to_bits()
+        );
+        assert_eq!(
+            f32_from_f16(f16_from_f32(-1.0e-9)).to_bits(),
+            (-0.0f32).to_bits()
+        );
     }
 
     /// Rounding must never be off by more than half an ulp: sweep a range of

@@ -39,7 +39,7 @@ pub use lion::Lion;
 pub use lookahead::Lookahead;
 pub use radam::RAdam;
 pub use rmsprop::RMSprop;
-pub use schedule::{CosineAnnealing, Constant, LrSchedule, OneCycle, StepDecay, Warmup};
+pub use schedule::{Constant, CosineAnnealing, LrSchedule, OneCycle, StepDecay, Warmup};
 pub use sgd::SGD;
 pub use state::OptimizerState;
 

@@ -31,14 +31,23 @@ impl Drop for TempFile {
 }
 
 fn small_model() -> Sequential {
-    Sequential::new().add(Linear::new(4, 6)).add(ReLU).add(Linear::new(6, 3))
+    Sequential::new()
+        .add(Linear::new(4, 6))
+        .add(ReLU)
+        .add(Linear::new(6, 3))
 }
 
 fn batch() -> (Tensor, Vec<usize>) {
     (Tensor::randn(&[5, 4]), vec![0, 1, 2, 1, 0])
 }
 
-fn train_steps(model: &dyn Module, opt: &mut dyn Optimizer, inputs: &Tensor, targets: &[usize], steps: usize) {
+fn train_steps(
+    model: &dyn Module,
+    opt: &mut dyn Optimizer,
+    inputs: &Tensor,
+    targets: &[usize],
+    steps: usize,
+) {
     for _ in 0..steps {
         let loss = cross_entropy(&model.forward(inputs), targets);
         opt.zero_grad();
@@ -194,7 +203,10 @@ fn anomaly_detection_resets_after_a_panic() {
         detect_anomaly(|| x.tensor().log().sum().backward());
     });
     assert!(caught.is_err());
-    assert!(!fastnn::autograd::is_detecting(), "the guard did not unwind cleanly");
+    assert!(
+        !fastnn::autograd::is_detecting(),
+        "the guard did not unwind cleanly"
+    );
 }
 
 #[test]
@@ -220,7 +232,11 @@ fn a_frozen_layer_does_not_move() {
     backbone.freeze();
 
     let before = backbone.weight.value().to_vec();
-    let params: Vec<Param> = backbone.parameters().into_iter().chain(head.parameters()).collect();
+    let params: Vec<Param> = backbone
+        .parameters()
+        .into_iter()
+        .chain(head.parameters())
+        .collect();
     let mut opt = Adam::new(params, 0.1);
     let (inputs, targets) = batch();
 
@@ -232,8 +248,15 @@ fn a_frozen_layer_does_not_move() {
         opt.step();
     }
 
-    assert_eq!(backbone.weight.value().to_vec(), before, "frozen weights moved");
-    assert_ne!(head.weight.value().to_vec(), head.weight.value().mul_scalar(0.0).to_vec());
+    assert_eq!(
+        backbone.weight.value().to_vec(),
+        before,
+        "frozen weights moved"
+    );
+    assert_ne!(
+        head.weight.value().to_vec(),
+        head.weight.value().mul_scalar(0.0).to_vec()
+    );
 }
 
 #[test]
@@ -244,7 +267,10 @@ fn freezing_skips_the_gradient_entirely() {
     layer.freeze();
 
     layer.forward(&Tensor::randn(&[2, 4])).sum().backward();
-    assert!(layer.weight.grad().is_none(), "a frozen parameter accumulated a gradient");
+    assert!(
+        layer.weight.grad().is_none(),
+        "a frozen parameter accumulated a gradient"
+    );
 }
 
 #[test]
@@ -265,7 +291,11 @@ fn freezing_reaches_through_a_container() {
     let model = small_model();
     model.freeze();
     assert!(model.trainable_parameters().is_empty());
-    assert_eq!(model.parameters().len(), 4, "freezing should not hide parameters");
+    assert_eq!(
+        model.parameters().len(),
+        4,
+        "freezing should not hide parameters"
+    );
 }
 
 // ── Fallible ops ─────────────────────────────────────────────────────────────
@@ -275,7 +305,10 @@ fn shape_errors_are_reported_not_fatal() {
     let x = Tensor::zeros(&[4, 8]);
 
     let err = x.try_matmul(&Tensor::zeros(&[3, 3])).unwrap_err();
-    assert!(err.to_string().contains("inner dimensions"), "unhelpful message: {err}");
+    assert!(
+        err.to_string().contains("inner dimensions"),
+        "unhelpful message: {err}"
+    );
 
     assert!(x.try_add(&Tensor::zeros(&[5, 8])).is_err());
     assert!(x.try_reshape(&[7, 7]).is_err());
@@ -289,7 +322,10 @@ fn fallible_ops_agree_with_the_panicking_ones() {
 
     assert_eq!(a.try_matmul(&b).unwrap().to_vec(), a.matmul(&b).to_vec());
     assert_eq!(a.try_add(&a).unwrap().to_vec(), a.add(&a).to_vec());
-    assert_eq!(a.try_reshape(&[2, 16]).unwrap().shape(), a.reshape(&[2, 16]).shape());
+    assert_eq!(
+        a.try_reshape(&[2, 16]).unwrap().shape(),
+        a.reshape(&[2, 16]).shape()
+    );
 }
 
 #[test]

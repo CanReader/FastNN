@@ -38,7 +38,10 @@ fn main() -> fastnn::Result<()> {
     let device = Device::best();
     let model = CharGPT::new(vocab.len(), &config);
     model.to_device(device);
-    println!("model:  {} parameters on {device}\n", model.num_parameters());
+    println!(
+        "model:  {} parameters on {device}\n",
+        model.num_parameters()
+    );
 
     let mut opt = AdamW::new(model.parameters(), config.lr).betas(0.9, 0.95);
 
@@ -71,7 +74,10 @@ fn main() -> fastnn::Result<()> {
         if (step + 1) % config.report_every == 0 {
             println!(
                 "step {:5}/{}  loss {:.4}  lr {:.2e}",
-                step + 1, config.steps, loss.item(), opt.lr()
+                step + 1,
+                config.steps,
+                loss.item(),
+                opt.lr()
             );
         }
         if (step + 1) % config.checkpoint_every == 0 {
@@ -102,7 +108,13 @@ impl CharGPT {
         CharGPT {
             tokens: Embedding::new(vocab, config.width),
             positions: Embedding::new(config.context, config.width),
-            blocks: TransformerStack::causal(config.width, config.heads, 4 * config.width, config.layers, 0.1),
+            blocks: TransformerStack::causal(
+                config.width,
+                config.heads,
+                4 * config.width,
+                config.layers,
+                0.1,
+            ),
             head: Linear::no_bias(config.width, vocab),
             context: config.context,
         }
@@ -114,7 +126,11 @@ impl CharGPT {
     /// position in every sequence is one independent next-token prediction.
     fn forward_ids(&self, ids: &[Vec<usize>]) -> Tensor {
         let (batch, length) = (ids.len(), ids[0].len());
-        assert!(length <= self.context, "sequence {length} exceeds context {}", self.context);
+        assert!(
+            length <= self.context,
+            "sequence {length} exceeds context {}",
+            self.context
+        );
 
         let embedded = self.tokens.lookup_batch(ids);
         let positions = self
@@ -123,7 +139,9 @@ impl CharGPT {
             .reshape(&[1, length as i64, -1]);
 
         let hidden = self.blocks.forward(&embedded.add(&positions));
-        self.head.forward(&hidden).reshape(&[(batch * length) as i64, -1])
+        self.head
+            .forward(&hidden)
+            .reshape(&[(batch * length) as i64, -1])
     }
 }
 
@@ -131,7 +149,12 @@ impl Module for CharGPT {
     fn forward(&self, input: &Tensor) -> Tensor {
         let ids: Vec<Vec<usize>> = (0..input.dim(0))
             .map(|row| {
-                input.narrow(0, row, 1).to_vec().iter().map(|&v| v as usize).collect()
+                input
+                    .narrow(0, row, 1)
+                    .to_vec()
+                    .iter()
+                    .map(|&v| v as usize)
+                    .collect()
             })
             .collect();
         self.forward_ids(&ids)
@@ -160,7 +183,11 @@ struct Vocab {
 
 impl Vocab {
     fn new(text: &str) -> Vocab {
-        let mut to_char: Vec<char> = text.chars().collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+        let mut to_char: Vec<char> = text
+            .chars()
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
         to_char.shrink_to_fit();
         Vocab {
             to_id: to_char.iter().enumerate().map(|(i, &c)| (c, i)).collect(),
@@ -173,7 +200,9 @@ impl Vocab {
     }
 
     fn encode(&self, text: &str) -> Vec<usize> {
-        text.chars().filter_map(|c| self.to_id.get(&c).copied()).collect()
+        text.chars()
+            .filter_map(|c| self.to_id.get(&c).copied())
+            .collect()
     }
 
     fn decode(&self, ids: &[usize]) -> String {
@@ -199,7 +228,13 @@ fn sample_batch(data: &[usize], config: &Config) -> (Vec<Vec<usize>>, Vec<usize>
 // ── Generation ───────────────────────────────────────────────────────────────
 
 /// Sample `count` characters, feeding each one back in as context.
-fn generate(model: &CharGPT, vocab: &Vocab, config: &Config, count: usize, temperature: f32) -> String {
+fn generate(
+    model: &CharGPT,
+    vocab: &Vocab,
+    config: &Config,
+    count: usize,
+    temperature: f32,
+) -> String {
     let mut ids = vec![0usize];
 
     for _ in 0..count {
@@ -249,14 +284,44 @@ impl Config {
         // A model much larger than its corpus memorises instead of generalising,
         // so capacity scales with the amount of text available.
         if chars > 200_000 {
-            Config { context: 128, batch: 32, width: 256, heads: 8, layers: 6,
-                     lr: 3e-4, warmup: 400, steps: 5_000, report_every: 100, checkpoint_every: 500 }
+            Config {
+                context: 128,
+                batch: 32,
+                width: 256,
+                heads: 8,
+                layers: 6,
+                lr: 3e-4,
+                warmup: 400,
+                steps: 5_000,
+                report_every: 100,
+                checkpoint_every: 500,
+            }
         } else if chars > 20_000 {
-            Config { context: 64, batch: 32, width: 128, heads: 4, layers: 4,
-                     lr: 3e-4, warmup: 200, steps: 3_000, report_every: 100, checkpoint_every: 500 }
+            Config {
+                context: 64,
+                batch: 32,
+                width: 128,
+                heads: 4,
+                layers: 4,
+                lr: 3e-4,
+                warmup: 200,
+                steps: 3_000,
+                report_every: 100,
+                checkpoint_every: 500,
+            }
         } else {
-            Config { context: 32, batch: 16, width: 64, heads: 4, layers: 2,
-                     lr: 1e-3, warmup: 100, steps: 1_500, report_every: 100, checkpoint_every: 500 }
+            Config {
+                context: 32,
+                batch: 16,
+                width: 64,
+                heads: 4,
+                layers: 2,
+                lr: 1e-3,
+                warmup: 100,
+                steps: 1_500,
+                report_every: 100,
+                checkpoint_every: 500,
+            }
         }
     }
 }

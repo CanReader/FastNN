@@ -34,7 +34,10 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Cuda(msg) => write!(f, "cuda: {msg}"),
-            Error::NoCuda => write!(f, "cuda: no device available (build with the `cuda` feature and a working GPU)"),
+            Error::NoCuda => write!(
+                f,
+                "cuda: no device available (build with the `cuda` feature and a working GPU)"
+            ),
             Error::Io(e) => write!(f, "io: {e}"),
             Error::Checkpoint(msg) => write!(f, "checkpoint: {msg}"),
             Error::Dataset(msg) => write!(f, "dataset: {msg}"),

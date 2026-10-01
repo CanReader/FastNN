@@ -20,8 +20,9 @@ impl Backward for IndexSelectBackward {
         if let Storage::Cuda(g) = grad.storage() {
             let ids_i32: Vec<i32> = self.ids.iter().map(|&i| i as i32).collect();
             let ids_buf = kernels::upload_ids(&ids_i32).expect("cuda upload ids");
-            let table = kernels::embedding_backward(&ids_buf, g, self.ids.len(), self.cols, self.rows)
-                .expect("cuda embedding backward");
+            let table =
+                kernels::embedding_backward(&ids_buf, g, self.ids.len(), self.cols, self.rows)
+                    .expect("cuda embedding backward");
             return vec![Tensor::raw(
                 Storage::Cuda(table),
                 vec![self.rows, self.cols],

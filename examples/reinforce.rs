@@ -37,7 +37,11 @@ fn main() {
         if (step + 1) % 400 == 0 {
             let probs = no_grad(|| preferences.tensor().softmax()).to_vec();
             let shown: Vec<String> = probs.iter().map(|p| format!("{p:.2}")).collect();
-            println!("step {:4}  baseline {baseline:.2}  policy [{}]", step + 1, shown.join(" "));
+            println!(
+                "step {:4}  baseline {baseline:.2}  policy [{}]",
+                step + 1,
+                shown.join(" ")
+            );
         }
     }
 

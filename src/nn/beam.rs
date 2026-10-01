@@ -46,13 +46,20 @@ impl Beam {
 impl BeamSearch {
     pub fn new(width: usize) -> BeamSearch {
         assert!(width > 0, "beam width must be at least 1");
-        BeamSearch { width, length_penalty: 1.0, eos: None }
+        BeamSearch {
+            width,
+            length_penalty: 1.0,
+            eos: None,
+        }
     }
 
     /// Exponent on length when comparing beams. 1.0 is per-token average;
     /// below favours short outputs, above favours long ones.
     pub fn length_penalty(mut self, penalty: f32) -> BeamSearch {
-        assert!(penalty > 0.0, "length_penalty must be positive, got {penalty}");
+        assert!(
+            penalty > 0.0,
+            "length_penalty must be positive, got {penalty}"
+        );
         self.length_penalty = penalty;
         self
     }
@@ -74,7 +81,11 @@ impl BeamSearch {
         max_tokens: usize,
         mut step: impl FnMut(&[usize]) -> Vec<f32>,
     ) -> Vec<usize> {
-        let mut beams = vec![Beam { generated: Vec::new(), log_prob: 0.0, finished: false }];
+        let mut beams = vec![Beam {
+            generated: Vec::new(),
+            log_prob: 0.0,
+            finished: false,
+        }];
 
         for _ in 0..max_tokens {
             if beams.iter().all(|b| b.finished) {
@@ -116,7 +127,8 @@ impl BeamSearch {
             }
 
             candidates.sort_by(|a, b| {
-                b.score(self.length_penalty).total_cmp(&a.score(self.length_penalty))
+                b.score(self.length_penalty)
+                    .total_cmp(&a.score(self.length_penalty))
             });
             candidates.truncate(self.width);
             beams = candidates;
@@ -124,7 +136,10 @@ impl BeamSearch {
 
         beams
             .into_iter()
-            .max_by(|a, b| a.score(self.length_penalty).total_cmp(&b.score(self.length_penalty)))
+            .max_by(|a, b| {
+                a.score(self.length_penalty)
+                    .total_cmp(&b.score(self.length_penalty))
+            })
             .map(|beam| beam.generated)
             .unwrap_or_default()
     }

@@ -14,8 +14,8 @@ use super::dropout::Dropout;
 use super::linear::Linear;
 use super::module::{scoped, Module};
 use super::norm::LayerNorm;
-use super::transformer::{Activation, TransformerStack};
 use super::param::Param;
+use super::transformer::{Activation, TransformerStack};
 
 /// One pre-norm decoder block: causal self-attention, cross-attention over the
 /// encoder memory, then a feed-forward network, each wrapped in a residual.
@@ -32,7 +32,12 @@ pub struct TransformerDecoderBlock {
 }
 
 impl TransformerDecoderBlock {
-    pub fn new(model_dim: usize, heads: usize, hidden_dim: usize, dropout: f32) -> TransformerDecoderBlock {
+    pub fn new(
+        model_dim: usize,
+        heads: usize,
+        hidden_dim: usize,
+        dropout: f32,
+    ) -> TransformerDecoderBlock {
         TransformerDecoderBlock {
             self_attention: MultiHeadAttention::new(model_dim, heads, dropout),
             cross_attention: MultiHeadAttention::new(model_dim, heads, dropout),
@@ -56,13 +61,20 @@ impl TransformerDecoderBlock {
     ///
     /// The query side is normalized per sub-layer as usual; the memory arrives
     /// already normalized by the encoder's final norm and is used as-is.
-    pub fn decode_masked(&self, target: &Tensor, memory: &Tensor, memory_mask: Option<&Tensor>) -> Tensor {
+    pub fn decode_masked(
+        &self,
+        target: &Tensor,
+        memory: &Tensor,
+        memory_mask: Option<&Tensor>,
+    ) -> Tensor {
         let normed = self.norm_self.forward(target);
         let attended = self.self_attention.attend(&normed, &normed, &normed, true);
         let x = target.add(&self.dropout.forward(&attended));
 
         let normed = self.norm_cross.forward(&x);
-        let attended = self.cross_attention.attend_masked(&normed, memory, memory, false, memory_mask);
+        let attended =
+            self.cross_attention
+                .attend_masked(&normed, memory, memory, false, memory_mask);
         let x = x.add(&self.dropout.forward(&attended));
 
         let normed = self.norm_feedforward.forward(&x);
@@ -80,10 +92,16 @@ impl Module for TransformerDecoderBlock {
 
     fn named_parameters(&self) -> Vec<(String, Param)> {
         let mut params = scoped("self_attention", self.self_attention.named_parameters());
-        params.extend(scoped("cross_attention", self.cross_attention.named_parameters()));
+        params.extend(scoped(
+            "cross_attention",
+            self.cross_attention.named_parameters(),
+        ));
         params.extend(scoped("norm_self", self.norm_self.named_parameters()));
         params.extend(scoped("norm_cross", self.norm_cross.named_parameters()));
-        params.extend(scoped("norm_feedforward", self.norm_feedforward.named_parameters()));
+        params.extend(scoped(
+            "norm_feedforward",
+            self.norm_feedforward.named_parameters(),
+        ));
         params.extend(scoped("up", self.up.named_parameters()));
         params.extend(scoped("down", self.down.named_parameters()));
         params
@@ -103,7 +121,13 @@ pub struct TransformerDecoder {
 }
 
 impl TransformerDecoder {
-    pub fn new(model_dim: usize, heads: usize, hidden_dim: usize, layers: usize, dropout: f32) -> TransformerDecoder {
+    pub fn new(
+        model_dim: usize,
+        heads: usize,
+        hidden_dim: usize,
+        layers: usize,
+        dropout: f32,
+    ) -> TransformerDecoder {
         TransformerDecoder {
             blocks: (0..layers)
                 .map(|_| TransformerDecoderBlock::new(model_dim, heads, hidden_dim, dropout))
@@ -116,11 +140,15 @@ impl TransformerDecoder {
         self.decode_masked(target, memory, None)
     }
 
-    pub fn decode_masked(&self, target: &Tensor, memory: &Tensor, memory_mask: Option<&Tensor>) -> Tensor {
-        let hidden = self
-            .blocks
-            .iter()
-            .fold(target.clone(), |x, block| block.decode_masked(&x, memory, memory_mask));
+    pub fn decode_masked(
+        &self,
+        target: &Tensor,
+        memory: &Tensor,
+        memory_mask: Option<&Tensor>,
+    ) -> Tensor {
+        let hidden = self.blocks.iter().fold(target.clone(), |x, block| {
+            block.decode_masked(&x, memory, memory_mask)
+        });
         self.norm.forward(&hidden)
     }
 }
@@ -170,7 +198,13 @@ impl Transformer {
         dropout: f32,
     ) -> Transformer {
         Transformer {
-            encoder: TransformerStack::encoder(model_dim, heads, hidden_dim, encoder_layers, dropout),
+            encoder: TransformerStack::encoder(
+                model_dim,
+                heads,
+                hidden_dim,
+                encoder_layers,
+                dropout,
+            ),
             decoder: TransformerDecoder::new(model_dim, heads, hidden_dim, decoder_layers, dropout),
         }
     }
@@ -183,7 +217,12 @@ impl Transformer {
     /// [`run`](Self::run) with a source padding mask, applied both to the
     /// encoder's self-attention and to the decoder's cross-attention — the two
     /// places a padded source position could leak in.
-    pub fn run_masked(&self, source: &Tensor, target: &Tensor, source_mask: Option<&Tensor>) -> Tensor {
+    pub fn run_masked(
+        &self,
+        source: &Tensor,
+        target: &Tensor,
+        source_mask: Option<&Tensor>,
+    ) -> Tensor {
         let memory = self.encoder.forward_masked(source, source_mask);
         self.decoder.decode_masked(target, &memory, source_mask)
     }

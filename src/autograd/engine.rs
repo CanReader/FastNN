@@ -16,8 +16,10 @@ use super::node::{Node, NodeId};
 /// (a constant, or built inside [`no_grad`](super::no_grad)).
 pub fn backward(loss: &Tensor) {
     assert_eq!(
-        loss.numel(), 1,
-        "backward() needs a scalar loss, got shape {:?}", loss.shape()
+        loss.numel(),
+        1,
+        "backward() needs a scalar loss, got shape {:?}",
+        loss.shape()
     );
     let Some(root) = loss.grad_fn() else { return };
 
@@ -27,7 +29,9 @@ pub fn backward(loss: &Tensor) {
     grads.insert(root.id(), Tensor::ones(&[1]).to(loss.device()));
 
     for node in reverse_topological(root) {
-        let Some(grad) = grads.remove(&node.id()) else { continue };
+        let Some(grad) = grads.remove(&node.id()) else {
+            continue;
+        };
 
         let op = match &node {
             Node::Leaf(slot) => {
@@ -45,13 +49,18 @@ pub fn backward(loss: &Tensor) {
             super::anomaly::check(op.rule.name(), &input_grads);
         }
         assert_eq!(
-            input_grads.len(), op.inputs.len(),
+            input_grads.len(),
+            op.inputs.len(),
             "{} returned {} gradients for {} inputs",
-            op.rule.name(), input_grads.len(), op.inputs.len()
+            op.rule.name(),
+            input_grads.len(),
+            op.inputs.len()
         );
 
         for (input, input_grad) in op.inputs.iter().zip(input_grads) {
-            let Some(input_node) = input.grad_fn() else { continue };
+            let Some(input_node) = input.grad_fn() else {
+                continue;
+            };
             grads
                 .entry(input_node.id())
                 .and_modify(|acc| *acc = acc.add(&input_grad))

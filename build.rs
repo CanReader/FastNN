@@ -59,7 +59,11 @@ fn build_cuda() {
     println!("cargo:rerun-if-env-changed=FASTNN_NVCC_CCBIN");
     if let Ok(ccbin) = env::var("FASTNN_NVCC_CCBIN") {
         build.flag(format!("-ccbin={ccbin}"));
-    } else if std::process::Command::new("g++-15").arg("--version").output().is_ok() {
+    } else if std::process::Command::new("g++-15")
+        .arg("--version")
+        .output()
+        .is_ok()
+    {
         build.flag("-ccbin=g++-15");
     }
 

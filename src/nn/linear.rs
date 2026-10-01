@@ -21,7 +21,10 @@ impl Linear {
     /// A layer with bias, Kaiming-initialised.
     pub fn new(in_features: usize, out_features: usize) -> Linear {
         Linear {
-            weight: Param::new(Tensor::kaiming_uniform(&[out_features, in_features], in_features)),
+            weight: Param::new(Tensor::kaiming_uniform(
+                &[out_features, in_features],
+                in_features,
+            )),
             bias: Some(Param::new(uniform_bias(out_features, in_features))),
             in_features,
             out_features,
@@ -49,8 +52,11 @@ impl Linear {
 impl Module for Linear {
     fn forward(&self, input: &Tensor) -> Tensor {
         assert_eq!(
-            input.last_dim(), self.in_features,
-            "Linear expects {} input features, got {:?}", self.in_features, input.shape()
+            input.last_dim(),
+            self.in_features,
+            "Linear expects {} input features, got {:?}",
+            self.in_features,
+            input.shape()
         );
 
         // `matmul_nt` consumes the weight as stored, [out, in], with no transposed copy.
@@ -61,7 +67,10 @@ impl Module for Linear {
             out = out.add(&bias.tensor().reshape(&[1, self.out_features as i64]));
         }
 
-        let mut shape: Vec<i64> = input.shape()[..input.ndim() - 1].iter().map(|&d| d as i64).collect();
+        let mut shape: Vec<i64> = input.shape()[..input.ndim() - 1]
+            .iter()
+            .map(|&d| d as i64)
+            .collect();
         shape.push(self.out_features as i64);
         out.reshape(&shape)
     }

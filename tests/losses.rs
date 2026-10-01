@@ -22,7 +22,11 @@ fn huber_is_quadratic_inside_delta_and_linear_outside() {
     let target = Tensor::zeros(&[2, 1]);
     // ½·0.5² = 0.125 inside; δ(|3| − ½δ) = 2.5 outside; mean = 1.3125.
     assert_close(huber(&prediction, &target, 1.0).item(), 1.3125, "huber");
-    assert_close(smooth_l1(&prediction, &target).item(), 1.3125, "smooth_l1 = huber(δ=1)");
+    assert_close(
+        smooth_l1(&prediction, &target).item(),
+        1.3125,
+        "smooth_l1 = huber(δ=1)",
+    );
 }
 
 #[test]
@@ -32,7 +36,11 @@ fn kl_divergence_matches_the_definition() {
     // 0.5·ln(0.5/0.25) + 0.5·ln(0.5/0.75) = 0.5(ln 2 + ln ⅔) ≈ 0.14384.
     assert_close(kl_divergence(&prediction, &target).item(), 0.14384, "kl");
     // KL(p ‖ p) = 0.
-    assert_close(kl_divergence(&target, &target).item(), 0.0, "kl of identical");
+    assert_close(
+        kl_divergence(&target, &target).item(),
+        0.0,
+        "kl of identical",
+    );
 }
 
 #[test]
@@ -97,7 +105,9 @@ fn label_smoothing_matches_the_smoothed_target_distribution() {
     // p = [¼, ¾], target 1, s = 0.2 ⇒ q = [0.1, 0.9]:
     // loss = −(0.1·ln ¼ + 0.9·ln ¾) ≈ 0.39752.
     let logits = Tensor::from_vec(vec![0.0, 3.0f32.ln()], &[1, 2]);
-    let loss = CrossEntropyLoss::new().label_smoothing(0.2).compute(&logits, &[1]);
+    let loss = CrossEntropyLoss::new()
+        .label_smoothing(0.2)
+        .compute(&logits, &[1]);
     assert_close(loss.item(), 0.39752, "smoothed ce");
 }
 
@@ -112,7 +122,11 @@ fn class_weights_take_a_weighted_mean() {
         .class_weights(vec![1.0, 3.0])
         .compute(&logits, &[0, 1]);
     let expected = (1.0 * separate[0] + 3.0 * separate[1]) / 4.0;
-    assert_close(weighted.item(), expected, "weighted mean over Σw, not batch");
+    assert_close(
+        weighted.item(),
+        expected,
+        "weighted mean over Σw, not batch",
+    );
 }
 
 #[test]
@@ -130,7 +144,10 @@ fn ignored_rows_contribute_neither_loss_nor_gradient() {
 
     loss.backward();
     let grad = logits.grad().unwrap().to_vec();
-    assert!(grad[2] == 0.0 && grad[3] == 0.0, "ignored row leaked gradient: {grad:?}");
+    assert!(
+        grad[2] == 0.0 && grad[3] == 0.0,
+        "ignored row leaked gradient: {grad:?}"
+    );
     assert!(grad[0] != 0.0, "participating row must receive gradient");
 
     // Every row ignored: zero loss, and finite everywhere.
@@ -144,8 +161,13 @@ fn reduction_modes_relate_as_mean_sum_and_rows() {
     let targets = [2usize, 0];
 
     let mean = CrossEntropyLoss::new().compute(&logits, &targets).item();
-    let sum = CrossEntropyLoss::new().reduction(Reduction::Sum).compute(&logits, &targets).item();
-    let rows = CrossEntropyLoss::new().reduction(Reduction::None).compute(&logits, &targets);
+    let sum = CrossEntropyLoss::new()
+        .reduction(Reduction::Sum)
+        .compute(&logits, &targets)
+        .item();
+    let rows = CrossEntropyLoss::new()
+        .reduction(Reduction::None)
+        .compute(&logits, &targets);
 
     assert_eq!(rows.shape(), &[2], "None keeps one loss per row");
     assert_close(sum, mean * 2.0, "sum = mean·batch");
@@ -158,24 +180,40 @@ fn metric_losses_match_hand_worked_geometry() {
     let anchor = Tensor::from_vec(vec![0.0, 0.0], &[1, 2]);
     let positive = Tensor::from_vec(vec![1.0, 0.0], &[1, 2]);
     let negative = Tensor::from_vec(vec![1.5, 0.0], &[1, 2]);
-    assert_close(triplet_margin(&anchor, &positive, &negative, 1.0).item(), 0.5, "triplet");
+    assert_close(
+        triplet_margin(&anchor, &positive, &negative, 1.0).item(),
+        0.5,
+        "triplet",
+    );
 
     // Cosine: orthogonal vectors. Similar pair costs 1 − 0 = 1; dissimilar
     // pair with margin 0 costs relu(0 − 0) = 0; mean = 0.5.
     let a = Tensor::from_vec(vec![1.0, 0.0, 1.0, 0.0], &[2, 2]);
     let b = Tensor::from_vec(vec![0.0, 1.0, 0.0, 1.0], &[2, 2]);
-    assert_close(cosine_embedding(&a, &b, &[1.0, -1.0], 0.0).item(), 0.5, "cosine embedding");
+    assert_close(
+        cosine_embedding(&a, &b, &[1.0, -1.0], 0.0).item(),
+        0.5,
+        "cosine embedding",
+    );
 
     // Ranking: x1 already margin ahead → 0; wrong order → 1 + margin.
     let x1 = Tensor::from_vec(vec![2.0, 2.0], &[2, 1]);
     let x2 = Tensor::from_vec(vec![1.0, 1.0], &[2, 1]);
-    assert_close(margin_ranking(&x1, &x2, &[1.0, -1.0], 0.5).item(), 0.75, "margin ranking");
+    assert_close(
+        margin_ranking(&x1, &x2, &[1.0, -1.0], 0.5).item(),
+        0.75,
+        "margin ranking",
+    );
 
     // Contrastive: matched at distance 0 → 0; mismatched at distance 1 with
     // margin 2 → (2−1)² = 1; mean = 0.5.
     let u = Tensor::from_vec(vec![0.0, 0.0, 0.0, 0.0], &[2, 2]);
     let v = Tensor::from_vec(vec![0.0, 0.0, 1.0, 0.0], &[2, 2]);
-    assert_close(contrastive(&u, &v, &[1.0, 0.0], 2.0).item(), 0.5, "contrastive");
+    assert_close(
+        contrastive(&u, &v, &[1.0, 0.0], 2.0).item(),
+        0.5,
+        "contrastive",
+    );
 }
 
 #[test]
@@ -184,5 +222,9 @@ fn info_nce_on_an_identity_batch_matches_the_closed_form() {
     // own row of I, so loss = −ln(e/(e + (n−1))) = ln(1 + (n−1)e⁻¹).
     let identity = Tensor::from_vec(vec![1.0, 0.0, 0.0, 1.0], &[2, 2]);
     let expected = (1.0f32 + 1.0 * (-1.0f32).exp()).ln();
-    assert_close(info_nce(&identity, &identity, 1.0).item(), expected, "info_nce");
+    assert_close(
+        info_nce(&identity, &identity, 1.0).item(),
+        expected,
+        "info_nce",
+    );
 }

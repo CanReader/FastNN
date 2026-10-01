@@ -1,6 +1,8 @@
 //! Element-wise arithmetic, with NumPy broadcasting.
 
-use crate::autograd::ops::arith::{AddBackward, DivBackward, MulBackward, MulScalarBackward, SubBackward};
+use crate::autograd::ops::arith::{
+    AddBackward, DivBackward, MulBackward, MulScalarBackward, SubBackward,
+};
 use crate::cuda::ffi;
 use crate::tensor::Tensor;
 
@@ -23,14 +25,22 @@ impl Tensor {
 
     /// `self * other` element-wise (Hadamard), broadcasting.
     pub fn mul(&self, other: &Tensor) -> Tensor {
-        binary_op(self, other, |x, y| x * y, ffi::fastnn_cuda_mul)
-            .with_grad(&[self, other], || MulBackward { a: self.detach(), b: other.detach() })
+        binary_op(self, other, |x, y| x * y, ffi::fastnn_cuda_mul).with_grad(&[self, other], || {
+            MulBackward {
+                a: self.detach(),
+                b: other.detach(),
+            }
+        })
     }
 
     /// `self / other`, broadcasting.
     pub fn div(&self, other: &Tensor) -> Tensor {
-        binary_op(self, other, |x, y| x / y, ffi::fastnn_cuda_div)
-            .with_grad(&[self, other], || DivBackward { a: self.detach(), b: other.detach() })
+        binary_op(self, other, |x, y| x / y, ffi::fastnn_cuda_div).with_grad(&[self, other], || {
+            DivBackward {
+                a: self.detach(),
+                b: other.detach(),
+            }
+        })
     }
 
     /// `self + s`. The gradient passes straight through.

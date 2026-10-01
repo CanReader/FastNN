@@ -16,7 +16,11 @@ fn main() -> fastnn::Result<()> {
 
     let train = Mnist::load(Split::Train)?;
     let test = Mnist::load(Split::Test)?;
-    println!("mnist: {} training, {} test images", train.len(), test.len());
+    println!(
+        "mnist: {} training, {} test images",
+        train.len(),
+        test.len()
+    );
 
     let device = Device::best();
     let model = Sequential::new()
@@ -27,7 +31,9 @@ fn main() -> fastnn::Result<()> {
     model.to_device(device);
 
     let mut opt = Adam::new(model.parameters(), 1e-3);
-    let train_loader = DataLoader::new(&train, BATCH).shuffle(true).to_device(device);
+    let train_loader = DataLoader::new(&train, BATCH)
+        .shuffle(true)
+        .to_device(device);
     let test_loader = DataLoader::new(&test, 1000).to_device(device);
 
     println!("model: {} parameters on {device}\n", model.num_parameters());
@@ -85,5 +91,10 @@ fn accuracy(model: &dyn Module, loader: &DataLoader) -> f32 {
 }
 
 fn count_correct(logits: &Tensor, labels: &[usize]) -> usize {
-    logits.argmax(1).iter().zip(labels).filter(|(p, t)| p == t).count()
+    logits
+        .argmax(1)
+        .iter()
+        .zip(labels)
+        .filter(|(p, t)| p == t)
+        .count()
 }

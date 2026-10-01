@@ -20,7 +20,11 @@ struct Net {
 impl Net {
     fn new(classes: usize) -> Net {
         Net {
-            backbone: Sequential::new().add(Linear::new(2, 16)).add(Tanh).add(Linear::new(16, 16)).add(Tanh),
+            backbone: Sequential::new()
+                .add(Linear::new(2, 16))
+                .add(Tanh)
+                .add(Linear::new(16, 16))
+                .add(Tanh),
             head: Linear::new(16, classes),
         }
     }
@@ -71,7 +75,10 @@ fn main() -> fastnn::Result<()> {
 
     let pretrained = Net::new(4);
     fit(&pretrained, &inputs, &labels, 300);
-    println!("task A (quadrants):    {:.1}%", 100.0 * accuracy(&pretrained, &inputs, &labels));
+    println!(
+        "task A (quadrants):    {:.1}%",
+        100.0 * accuracy(&pretrained, &inputs, &labels)
+    );
     save(&pretrained, &checkpoint)?;
 
     // ── Fine-tune on task B: inside or outside the unit circle? ──────────────
@@ -86,10 +93,19 @@ fn main() -> fastnn::Result<()> {
     let before = accuracy(&model, &inputs, &labels);
     fit(&model, &inputs, &labels, 300);
     println!("task B before head:    {:.1}%", 100.0 * before);
-    println!("task B after head:     {:.1}%", 100.0 * accuracy(&model, &inputs, &labels));
-    println!("trainable parameters:  {} of {}",
-        model.trainable_parameters().iter().map(|p| p.numel()).sum::<usize>(),
-        model.num_parameters());
+    println!(
+        "task B after head:     {:.1}%",
+        100.0 * accuracy(&model, &inputs, &labels)
+    );
+    println!(
+        "trainable parameters:  {} of {}",
+        model
+            .trainable_parameters()
+            .iter()
+            .map(|p| p.numel())
+            .sum::<usize>(),
+        model.num_parameters()
+    );
 
     std::fs::remove_file(&checkpoint).ok();
     Ok(())

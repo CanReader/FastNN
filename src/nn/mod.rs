@@ -51,7 +51,7 @@ pub mod sequential;
 pub mod shape;
 pub mod transformer;
 
-pub use activation::{LeakyReLU, ReLU, Sigmoid, SiLU, Softmax, Tanh, GELU};
+pub use activation::{LeakyReLU, ReLU, SiLU, Sigmoid, Softmax, Tanh, GELU};
 pub use attention::MultiHeadAttention;
 pub use beam::BeamSearch;
 pub use cache::{KvCache, StackCache};

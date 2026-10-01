@@ -21,8 +21,14 @@ pub struct Dropout {
 impl Dropout {
     /// Panics unless `p` is in `[0, 1)` — `p = 1` would zero everything.
     pub fn new(p: f32) -> Dropout {
-        assert!((0.0..1.0).contains(&p), "dropout probability must be in [0, 1), got {p}");
-        Dropout { p, training: AtomicBool::new(true) }
+        assert!(
+            (0.0..1.0).contains(&p),
+            "dropout probability must be in [0, 1), got {p}"
+        );
+        Dropout {
+            p,
+            training: AtomicBool::new(true),
+        }
     }
 
     pub fn probability(&self) -> f32 {

@@ -165,7 +165,11 @@ fn memory_mask_blocks_padded_source_positions() {
 
     let out_a = no_grad(|| decoder.decode_masked(&target, &memory_a, Some(&mask)));
     let out_b = no_grad(|| decoder.decode_masked(&target, &memory_b, Some(&mask)));
-    assert_close(&out_a, &out_b, "masked memory leaked through cross-attention");
+    assert_close(
+        &out_a,
+        &out_b,
+        "masked memory leaked through cross-attention",
+    );
 }
 
 /// The best second token can hide behind the second-best first token; a width
@@ -184,7 +188,11 @@ fn beam_search_finds_what_greedy_misses() {
     let greedy = BeamSearch::new(1).decode(&[9], 2, step);
     let beamed = BeamSearch::new(2).decode(&[9], 2, step);
     assert_eq!(greedy[0], 0, "width 1 should behave greedily");
-    assert_eq!(beamed, vec![1, 0], "width 2 should find the higher-probability path");
+    assert_eq!(
+        beamed,
+        vec![1, 0],
+        "width 2 should find the higher-probability path"
+    );
 }
 
 #[test]
@@ -192,7 +200,10 @@ fn beam_search_stops_at_eos() {
     // Token 2 is end-of-sequence and always the most likely continuation.
     let step = |_: &[usize]| vec![0.0, 1.0, 5.0];
     let out = BeamSearch::new(2).eos(2).decode(&[0], 10, step);
-    assert!(out.is_empty(), "eos as first token should end generation, got {out:?}");
+    assert!(
+        out.is_empty(),
+        "eos as first token should end generation, got {out:?}"
+    );
 }
 
 #[test]

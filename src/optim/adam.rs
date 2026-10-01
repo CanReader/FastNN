@@ -90,7 +90,12 @@ pub struct Adam {
 
 impl Adam {
     pub fn new(params: Vec<Param>, lr: f32) -> Adam {
-        Adam { moments: Moments::new(params.len()), params, lr, weight_decay: 0.0 }
+        Adam {
+            moments: Moments::new(params.len()),
+            params,
+            lr,
+            weight_decay: 0.0,
+        }
     }
 
     /// Decay rates for the first and second moment. Lower `beta2` reacts faster
@@ -171,7 +176,12 @@ pub struct AdamW {
 
 impl AdamW {
     pub fn new(params: Vec<Param>, lr: f32) -> AdamW {
-        AdamW { moments: Moments::new(params.len()), params, lr, weight_decay: 0.01 }
+        AdamW {
+            moments: Moments::new(params.len()),
+            params,
+            lr,
+            weight_decay: 0.01,
+        }
     }
 
     pub fn betas(mut self, beta1: f32, beta2: f32) -> AdamW {

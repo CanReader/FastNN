@@ -28,14 +28,26 @@ impl Backward for Col2ImBackward {
 
         if let Storage::Cuda(buf) = grad.storage() {
             let image = kernels::col2im(
-                buf, (n, c, h, w), self.window.kernel, self.window.stride, self.window.padding,
-                self.window.dilation, (out_h, out_w),
+                buf,
+                (n, c, h, w),
+                self.window.kernel,
+                self.window.stride,
+                self.window.padding,
+                self.window.dilation,
+                (out_h, out_w),
             )
             .expect("cuda col2im");
-            return vec![Tensor::raw(Storage::Cuda(image), self.shape.clone(), grad.device())];
+            return vec![Tensor::raw(
+                Storage::Cuda(image),
+                self.shape.clone(),
+                grad.device(),
+            )];
         }
 
-        vec![Tensor::from_vec(fold(&grad.to_vec(), &self.shape, self.window), &self.shape)]
+        vec![Tensor::from_vec(
+            fold(&grad.to_vec(), &self.shape, self.window),
+            &self.shape,
+        )]
     }
     fn name(&self) -> &'static str {
         "Col2Im"
@@ -60,14 +72,26 @@ impl Backward for Im2ColBackward {
 
         if let Storage::Cuda(buf) = grad.storage() {
             let cols = kernels::im2col(
-                buf, (n, c, h, w), self.window.kernel, self.window.stride, self.window.padding,
-                self.window.dilation, (out_h, out_w),
+                buf,
+                (n, c, h, w),
+                self.window.kernel,
+                self.window.stride,
+                self.window.padding,
+                self.window.dilation,
+                (out_h, out_w),
             )
             .expect("cuda im2col");
-            return vec![Tensor::raw(Storage::Cuda(cols), cols_shape.to_vec(), grad.device())];
+            return vec![Tensor::raw(
+                Storage::Cuda(cols),
+                cols_shape.to_vec(),
+                grad.device(),
+            )];
         }
 
-        vec![Tensor::from_vec(unfold(&grad.to_vec(), &shape, self.window), &cols_shape)]
+        vec![Tensor::from_vec(
+            unfold(&grad.to_vec(), &shape, self.window),
+            &cols_shape,
+        )]
     }
     fn name(&self) -> &'static str {
         "Im2Col"

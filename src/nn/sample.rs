@@ -29,7 +29,12 @@ pub struct Sampler {
 impl Sampler {
     /// Plain sampling from the softmax of the logits.
     pub fn new() -> Sampler {
-        Sampler { temperature: 1.0, top_k: None, top_p: None, repetition_penalty: 1.0 }
+        Sampler {
+            temperature: 1.0,
+            top_k: None,
+            top_p: None,
+            repetition_penalty: 1.0,
+        }
     }
 
     /// Always the most likely token. Equivalent to `temperature(0.0)`.
@@ -39,7 +44,10 @@ impl Sampler {
 
     /// Below 1.0 sharpens the distribution, above 1.0 flattens it; 0.0 is greedy.
     pub fn temperature(mut self, temperature: f32) -> Sampler {
-        assert!(temperature >= 0.0, "temperature must be >= 0, got {temperature}");
+        assert!(
+            temperature >= 0.0,
+            "temperature must be >= 0, got {temperature}"
+        );
         self.temperature = temperature;
         self
     }
@@ -61,7 +69,10 @@ impl Sampler {
     /// Discourage tokens that already appeared. 1.0 is off; 1.1–1.3 is the
     /// usual range. Applied through [`sample_with_history`](Self::sample_with_history).
     pub fn repetition_penalty(mut self, penalty: f32) -> Sampler {
-        assert!(penalty >= 1.0, "repetition_penalty must be >= 1, got {penalty}");
+        assert!(
+            penalty >= 1.0,
+            "repetition_penalty must be >= 1, got {penalty}"
+        );
         self.repetition_penalty = penalty;
         self
     }

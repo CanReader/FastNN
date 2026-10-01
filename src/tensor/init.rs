@@ -70,7 +70,11 @@ impl Tensor {
 
     /// `n` evenly spaced values from `start` to `end`, both included.
     pub fn linspace(start: f32, end: f32, n: usize) -> Tensor {
-        let step = if n > 1 { (end - start) / (n - 1) as f32 } else { 0.0 };
+        let step = if n > 1 {
+            (end - start) / (n - 1) as f32
+        } else {
+            0.0
+        };
         let data: Vec<f32> = (0..n).map(|i| start + step * i as f32).collect();
         Tensor::from_vec(data, &[n])
     }
@@ -88,7 +92,10 @@ impl Tensor {
     pub fn one_hot(indices: &[usize], classes: usize) -> Tensor {
         let mut data = vec![0.0f32; indices.len() * classes];
         for (row, &class) in indices.iter().enumerate() {
-            assert!(class < classes, "one_hot: class {class} outside 0..{classes}");
+            assert!(
+                class < classes,
+                "one_hot: class {class} outside 0..{classes}"
+            );
             data[row * classes + class] = 1.0;
         }
         Tensor::from_vec(data, &[indices.len(), classes])

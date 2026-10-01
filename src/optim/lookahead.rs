@@ -33,12 +33,25 @@ impl<O: Optimizer> Lookahead<O> {
     /// the fast ones. The paper's defaults are k = 5, α = 0.5.
     pub fn new(inner: O, k: usize, alpha: f32) -> Lookahead<O> {
         assert!(k >= 1, "lookahead needs k >= 1");
-        assert!((0.0..=1.0).contains(&alpha), "alpha must be in [0, 1], got {alpha}");
+        assert!(
+            (0.0..=1.0).contains(&alpha),
+            "alpha must be in [0, 1], got {alpha}"
+        );
         // The slow weights start where the parameters start (φ₀ = θ₀). Seeding
         // lazily at the first sync would seed them from weights that had
         // already taken k fast steps, making that sync a no-op.
-        let slow = inner.parameters().iter().map(|p| Some(p.value().detach())).collect();
-        Lookahead { inner, slow, k, alpha, since_sync: 0 }
+        let slow = inner
+            .parameters()
+            .iter()
+            .map(|p| Some(p.value().detach()))
+            .collect();
+        Lookahead {
+            inner,
+            slow,
+            k,
+            alpha,
+            since_sync: 0,
+        }
     }
 }
 
@@ -109,6 +122,9 @@ mod tests {
         }
         // Fast weights walked to −0.2; slow started at 0.0; sync: 0 + 0.5·(−0.2).
         let got = param.value().to_vec()[0];
-        assert!((got - -0.1).abs() < 1e-6, "expected −0.1 after sync, got {got}");
+        assert!(
+            (got - -0.1).abs() < 1e-6,
+            "expected −0.1 after sync, got {got}"
+        );
     }
 }
