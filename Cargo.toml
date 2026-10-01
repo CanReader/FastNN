@@ -20,7 +20,7 @@ rand = "0.10"       # weight init, dropout masks, shuffling
 rand_distr = "0.6"  # normal distribution
 rayon = "1.8"       # data parallelism on the CPU paths
 libm = "0.2"        # erff, for exact GELU
-ureq = "2.9"        # dataset download
+ureq = "3.4"        # dataset download
 flate2 = "1.0"      # dataset decompression
 
 [build-dependencies]
