@@ -1,0 +1,33 @@
+name: Security audit
+
+# Checks every dependency against the RustSec advisory database. On the
+# weekly run the action opens an issue per advisory, so a vulnerable crate
+# gets noticed even in a quiet month.
+on:
+  push:
+    branches: [master]
+    paths: [Cargo.toml]
+  pull_request:
+    paths: [Cargo.toml]
+  schedule:
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+  issues: write
+
+jobs:
+  audit:
+    name: RustSec advisories
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Resolve dependencies
+        run: cargo generate-lockfile
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
