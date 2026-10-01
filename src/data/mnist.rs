@@ -135,7 +135,10 @@ fn download_missing(cache: &Path, files: &[&str]) -> Result<()> {
             .map_err(|e| Error::Dataset(format!("could not fetch {url}: {e}")))?;
 
         let mut compressed = Vec::new();
-        response.into_reader().read_to_end(&mut compressed)?;
+        response
+            .into_body()
+            .into_reader()
+            .read_to_end(&mut compressed)?;
         let mut raw = Vec::new();
         flate2::read::GzDecoder::new(&compressed[..]).read_to_end(&mut raw)?;
 
