@@ -1,0 +1,29 @@
+name: Feature request
+description: A layer, op, optimizer, or capability that is missing
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What should exist
+      description: Describe it from the user's side. A short snippet of how you would call it helps a lot.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What it makes possible, or what is painful without it.
+    validations:
+      required: true
+  - type: textarea
+    id: reference
+    attributes:
+      label: Reference
+      description: Optional. The paper, or how PyTorch or JAX does it.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: I'd like to implement this myself

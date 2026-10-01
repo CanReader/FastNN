@@ -1,0 +1,56 @@
+name: Bug report
+description: Something panics, gives wrong numbers, or does not build
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - Wrong result or gradient
+        - Panic or crash
+        - Build failure
+        - Slower than it should be
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: What you saw, and what you expected instead. If a number is wrong, say what the right one is and where it comes from (PyTorch, a hand derivation, ...).
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The smallest program that shows it. Shapes and values matter, include them.
+      render: rust
+    validations:
+      required: true
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device
+      options: [CPU, CUDA, Both, Not device specific]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: FastNN version or commit
+      placeholder: 0.3.0, or a commit hash
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: OS, Rust version, and GPU if CUDA
+      placeholder: Arch Linux, rustc 1.90, RTX 4050, driver 580, CUDA 13.0
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: Panic message, backtrace (RUST_BACKTRACE=1), or build log.
+      render: shell
