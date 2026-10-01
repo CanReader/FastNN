@@ -132,8 +132,13 @@ git push origin v0.4.0
 ```
 
 The release workflow checks the tag against `Cargo.toml`, runs the suite in
-release, publishes to crates.io, and creates the GitHub release with notes from
-the merged PRs.
+release, builds the example programs for Linux (x86_64, ARM64, and x86_64 with
+CUDA), macOS (Intel and Apple Silicon), and Windows, publishes to crates.io, and
+creates the GitHub release with the archives, a `SHA256SUMS` file, and notes
+from the merged PRs. Release notes are grouped by PR label, so label your PRs.
+
+Any PR that touches `release.yml` runs the whole thing except the publish
+steps, so the pipeline gets tested before a real tag depends on it.
 
 ## License
 

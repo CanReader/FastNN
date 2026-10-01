@@ -1,36 +1,155 @@
 name: Release
 
-# Pushing a tag like v0.4.0 publishes that version. The tag has to match
-# Cargo.toml and the full suite has to pass again before anything is
-# uploaded, since a crates.io version can never be replaced.
+# Pushing a tag like v0.4.0 cuts that release: the suite runs again, the
+# example programs are built for every platform below, the crate goes to
+# crates.io, and a GitHub release is created with the archives attached.
+#
+# A pull request that touches this file runs everything except the publish
+# steps, so a broken release pipeline shows up in review, not on release day.
 on:
   push:
     tags: ['v*']
+  pull_request:
+    paths: [.github/workflows/release.yml]
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  release:
-    name: Publish ${{ github.ref_name }}
+  verify:
+    name: Verify
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # A crates.io version can never be replaced, so a tag that disagrees
+      # with Cargo.toml stops here, before anything is uploaded.
+      - name: Tag matches Cargo.toml
+        id: version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
+              exit 1
+            fi
+            echo "version=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=v$version-dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      - run: cargo test --release
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04 rather than latest: binaries link against the runner's
+          # glibc, and an older one runs on more distributions.
+          - { name: Linux x86_64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, suffix: x86_64-linux }
+          - { name: Linux ARM64, os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, suffix: aarch64-linux }
+          - { name: Linux x86_64 CUDA, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, suffix: x86_64-linux-cuda, cuda: true }
+          - { name: macOS Intel, os: macos-15-intel, target: x86_64-apple-darwin, suffix: x86_64-macos }
+          - { name: macOS Apple Silicon, os: macos-latest, target: aarch64-apple-darwin, suffix: aarch64-macos }
+          - { name: Windows x86_64, os: windows-latest, target: x86_64-pc-windows-msvc, suffix: x86_64-windows }
+    env:
+      ARCHIVE: fastnn-${{ needs.verify.outputs.version }}-${{ matrix.suffix }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install CUDA toolkit
+        if: matrix.cuda
+        uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          method: network
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.suffix }}
+
+      - name: Build the examples
+        run: cargo build --release --examples --target ${{ matrix.target }} ${{ matrix.cuda && '--features cuda' || '' }}
+
+      - name: Package
+        run: |
+          examples=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[0].targets[] | select(.kind[0] == "example") | .name')
+          ext=""; [ "$RUNNER_OS" = "Windows" ] && ext=".exe"
+          mkdir "$ARCHIVE"
+          for ex in $examples; do
+            cp "target/${{ matrix.target }}/release/examples/$ex$ext" "$ARCHIVE/"
+          done
+          cp README.md LICENSE "$ARCHIVE/"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            7z a -tzip "$ARCHIVE.zip" "$ARCHIVE" > /dev/null
+          else
+            tar czf "$ARCHIVE.tar.gz" "$ARCHIVE"
+          fi
+          ls -l "$ARCHIVE"
+
+      # The CUDA build needs a driver to run anything, so only the CPU builds
+      # get a smoke test.
+      - name: Smoke test
+        if: ${{ !matrix.cuda }}
+        run: |
+          ext=""; [ "$RUNNER_OS" = "Windows" ] && ext=".exe"
+          "./$ARCHIVE/simple_mlp$ext"
+
+      - name: Attest build provenance
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: ${{ env.ARCHIVE }}.*
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}.*
+          if-no-files-found: error
+
+  publish:
+    name: Publish ${{ needs.verify.outputs.version }}
+    needs: [verify, build]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Tag matches Cargo.toml
-        run: |
-          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
-            exit 1
-          fi
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
 
-      - run: cargo test --release
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum fastnn-* > SHA256SUMS && cat SHA256SUMS
 
       - name: Publish to crates.io
         env:
@@ -45,4 +164,6 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
