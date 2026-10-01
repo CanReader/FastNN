@@ -16,8 +16,8 @@ name = "fastnn"
 path = "src/lib.rs"
 
 [dependencies]
-rand = "0.8"        # weight init, dropout masks, shuffling
-rand_distr = "0.4"  # normal distribution
+rand = "0.10"       # weight init, dropout masks, shuffling
+rand_distr = "0.6"  # normal distribution
 rayon = "1.8"       # data parallelism on the CPU paths
 libm = "0.2"        # erff, for exact GELU
 ureq = "2.9"        # dataset download

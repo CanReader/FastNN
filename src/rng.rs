@@ -6,11 +6,11 @@
 use std::cell::RefCell;
 
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use rand_distr::StandardNormal;
 
 thread_local! {
-    static RNG: RefCell<StdRng> = RefCell::new(StdRng::from_entropy());
+    static RNG: RefCell<StdRng> = RefCell::new(rand::make_rng());
 }
 
 /// Reseed this thread's generator so a run reproduces exactly.
@@ -25,7 +25,7 @@ pub fn with_rng<T>(f: impl FnOnce(&mut StdRng) -> T) -> T {
 
 /// `n` samples from the uniform distribution on `[lo, hi)`.
 pub fn uniform(n: usize, lo: f32, hi: f32) -> Vec<f32> {
-    with_rng(|rng| (0..n).map(|_| rng.gen_range(lo..hi)).collect())
+    with_rng(|rng| (0..n).map(|_| rng.random_range(lo..hi)).collect())
 }
 
 /// `n` samples from the standard normal distribution.
@@ -35,7 +35,7 @@ pub fn normal(n: usize) -> Vec<f32> {
 
 /// `n` draws from Bernoulli(`p`), as a bitmask of `true` = kept.
 pub fn bernoulli(n: usize, p: f32) -> Vec<bool> {
-    with_rng(|rng| (0..n).map(|_| rng.gen::<f32>() < p).collect())
+    with_rng(|rng| (0..n).map(|_| rng.random::<f32>() < p).collect())
 }
 
 /// Shuffle in place, using this thread's generator so `manual_seed` covers it.
