@@ -72,7 +72,11 @@ jobs:
       CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.87
+      # Toolchain passed as an input, not as `@1.87`: dependabot reads a ref
+      # like that as an action version and tries to "upgrade" the MSRV.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.87'
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --all-targets
 
