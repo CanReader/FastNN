@@ -95,8 +95,10 @@ jobs:
 
       - name: Package
         run: |
+          # jq on Windows ends lines with \r, which would end up in the names.
           examples=$(cargo metadata --no-deps --format-version 1 \
-            | jq -r '.packages[0].targets[] | select(.kind[0] == "example") | .name')
+            | jq -r '.packages[0].targets[] | select(.kind[0] == "example") | .name' \
+            | tr -d '\r')
           ext=""; [ "$RUNNER_OS" = "Windows" ] && ext=".exe"
           mkdir "$ARCHIVE"
           for ex in $examples; do
