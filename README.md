@@ -79,7 +79,8 @@ Every [release](https://github.com/CanReader/FastNN/releases) ships the
 example programs prebuilt for Linux (x86_64, ARM64), macOS (Intel, Apple
 Silicon), and Windows, plus a Linux build with CUDA. Download the archive for
 your platform and run `simple_mlp`, `char_lm`, or `mnist_cnn` directly, no Rust
-toolchain needed. The CUDA build expects the CUDA runtime to be installed.
+toolchain needed. The CUDA build links against the CUDA 13 runtime, so it needs
+that installed.
 
 ## How it fits together
 
