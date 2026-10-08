@@ -26,8 +26,12 @@ cargo build --features cuda
 cargo test --features cuda --test cuda_parity -- --test-threads=1
 ```
 
-If `nvcc` rejects your system compiler, set `FASTNN_NVCC_CCBIN` to one it
-accepts. Use `--release` for anything that trains, debug is around 50x slower.
+The toolkit's `bin` directory has to be on `PATH`, and `CUDA_PATH` has to point
+at that same toolkit. The [CUDA section of the README](README.md#cuda) has the
+details, including `FASTNN_NVCC_CCBIN` for when `nvcc` rejects your system
+compiler.
+
+Use `--release` for anything that trains, debug is around 50x slower.
 
 ## Pull requests
 

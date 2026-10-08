@@ -364,7 +364,12 @@ The `cuda` feature is opt-in, so a plain `cargo add fastnn` never needs the
 toolkit. With the feature on, `build.rs` compiles `cuda/kernels.cu` with `nvcc`
 and links `cudart`, `cublas`, and `curand`.
 
-* Set `CUDA_PATH` or `CUDA_HOME` if the toolkit is not in the default location.
+* `nvcc` is found on `PATH`, so put the toolkit's `bin` directory there, or
+  point the `NVCC` environment variable at the compiler directly.
+* Headers and libraries come from `CUDA_PATH`, then `CUDA_HOME`, then the
+  default install location. Make sure that is the same toolkit as the `nvcc`
+  you picked, or the kernels build against one CUDA version and link against
+  another.
 * If `nvcc` rejects your system compiler as too new, point `FASTNN_NVCC_CCBIN`
   at one it accepts.
 * Without the feature, `cuda/stubs.c` supplies the symbols, `Device::cuda(0)`
