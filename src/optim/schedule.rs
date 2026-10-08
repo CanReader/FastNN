@@ -196,4 +196,111 @@ mod tests {
         assert_eq!(schedule.lr_at(10), 0.5);
         assert_eq!(schedule.lr_at(20), 0.25);
     }
+
+    #[test]
+    fn step_decay_accepts_an_interval_of_one() {
+        let schedule = StepDecay::new(1.0, 1, 0.5);
+        assert_eq!(schedule.lr_at(1), 0.5);
+        assert_eq!(schedule.lr_at(2), 0.25);
+    }
+
+    #[test]
+    #[should_panic(expected = "every")]
+    fn step_decay_rejects_zero_every() {
+        StepDecay::new(1.0, 0, 0.5);
+    }
+
+    // The fields are public, so the check in lr_at has to catch this too.
+    #[test]
+    #[should_panic(expected = "every")]
+    fn step_decay_rejects_zero_every_set_after_new() {
+        let mut schedule = StepDecay::new(1.0, 1, 0.5);
+        schedule.every = 0;
+        schedule.lr_at(0);
+    }
+
+    fn close(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 1e-6,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    fn one_cycle(total: usize, warmup_fraction: f32) -> OneCycle {
+        OneCycle {
+            warmup_fraction,
+            ..OneCycle::new(1.0, total)
+        }
+    }
+
+    #[test]
+    fn one_cycle_goes_from_start_to_peak_to_floor() {
+        let schedule = OneCycle::new(1.0, 100);
+        close(schedule.lr_at(0), 0.04);
+        close(schedule.lr_at(30), 1.0);
+        close(schedule.lr_at(65), 0.50005);
+        close(schedule.lr_at(100), 0.0001);
+        close(schedule.lr_at(101), 0.0001);
+    }
+
+    #[test]
+    fn one_cycle_accepts_both_ends_of_the_fraction_range() {
+        for zero in [0.0, -0.0] {
+            let schedule = one_cycle(100, zero);
+            close(schedule.lr_at(0), 1.0);
+            close(schedule.lr_at(100), 0.0001);
+        }
+
+        let schedule = one_cycle(100, 1.0);
+        close(schedule.lr_at(0), 0.04);
+        close(schedule.lr_at(50), 0.52);
+        close(schedule.lr_at(100), 1.0);
+        close(schedule.lr_at(101), 0.0001);
+    }
+
+    #[test]
+    fn one_cycle_handles_tiny_totals() {
+        for fraction in [0.0, 0.3, 1.0] {
+            let schedule = one_cycle(0, fraction);
+            close(schedule.lr_at(0), 1.0);
+            close(schedule.lr_at(1), 0.0001);
+        }
+
+        let schedule = one_cycle(1, 1.0);
+        close(schedule.lr_at(0), 0.04);
+        close(schedule.lr_at(1), 1.0);
+        close(schedule.lr_at(2), 0.0001);
+    }
+
+    // 2^24 + 3 rounds up in f32, so a fraction of exactly 1 used to put the
+    // warmup past total and underflow the subtraction after it.
+    #[test]
+    fn one_cycle_survives_a_total_that_rounds_up_in_f32() {
+        let total = 16_777_219;
+        close(one_cycle(total, 1.0).lr_at(total + 1), 0.0001);
+    }
+
+    #[test]
+    #[should_panic(expected = "warmup_fraction")]
+    fn one_cycle_rejects_a_fraction_above_one() {
+        one_cycle(10, 2.0).lr_at(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "warmup_fraction")]
+    fn one_cycle_rejects_a_negative_fraction() {
+        one_cycle(10, -0.1).lr_at(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "warmup_fraction")]
+    fn one_cycle_rejects_nan() {
+        one_cycle(10, f32::NAN).lr_at(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "warmup_fraction")]
+    fn one_cycle_rejects_infinity() {
+        one_cycle(10, f32::INFINITY).lr_at(0);
+    }
 }
