@@ -44,6 +44,10 @@ jobs:
   # The default build is CPU-only, so every OS can run the whole suite,
   # gradcheck included. The kernels are covered by the cuda job below and by
   # tests/cuda_parity.rs on a machine with a GPU.
+  #
+  # The release run is there because release turns overflow checks off: an
+  # integer underflow that panics in debug silently wraps there instead, and
+  # that is the build people actually train with.
   test:
     name: Test (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
@@ -53,13 +57,16 @@ jobs:
       matrix:
         include:
           - { name: Linux, os: ubuntu-latest }
+          - { name: Linux release, os: ubuntu-latest, args: --release }
           - { name: macOS, os: macos-latest }
           - { name: Windows, os: windows-latest }
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test
+        with:
+          key: ${{ matrix.args }}
+      - run: cargo test ${{ matrix.args }}
 
   # Cargo.lock is not committed, so the fallback resolver is what keeps a
   # dependency that raised its own MSRV from failing this job for no reason
@@ -78,7 +85,7 @@ jobs:
         with:
           toolchain: '1.87'
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check --all-targets
+      - run: cargo test
 
   docs:
     name: Docs
