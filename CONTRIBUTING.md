@@ -49,8 +49,8 @@ including my own changes.
 |---|---|
 | Format | `cargo fmt --check` |
 | Clippy | `cargo clippy --all-targets -- -D warnings` |
-| Test | `cargo test` on Linux, macOS, and Windows |
-| MSRV | `cargo check` on Rust 1.87 |
+| Test | `cargo test` on Linux, macOS, and Windows, plus `--release` on Linux |
+| MSRV | `cargo test` on Rust 1.87 |
 | Docs | `cargo doc` with warnings as errors |
 | Package | `cargo package`, so the published crate builds |
 | CUDA build | compiles the kernels with nvcc and runs clippy with `--features cuda` |
