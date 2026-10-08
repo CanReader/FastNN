@@ -36,18 +36,29 @@ impl LrSchedule for Constant {
 /// Multiply by `gamma` every `every` steps.
 pub struct StepDecay {
     pub base: f32,
+    /// The positive number of steps between rate changes.
     pub every: usize,
     pub gamma: f32,
 }
 
 impl StepDecay {
+    /// Create a schedule that decays every `every` steps.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `every` is zero.
     pub fn new(base: f32, every: usize, gamma: f32) -> StepDecay {
+        assert!(every > 0, "every must be > 0");
         StepDecay { base, every, gamma }
     }
 }
 
 impl LrSchedule for StepDecay {
+    /// # Panics
+    ///
+    /// Panics if the public `every` field is zero.
     fn lr_at(&self, step: usize) -> f32 {
+        assert!(self.every > 0, "every must be > 0");
         self.base * self.gamma.powi((step / self.every) as i32)
     }
 }
@@ -115,6 +126,7 @@ impl<S: LrSchedule> LrSchedule for Warmup<S> {
 pub struct OneCycle {
     pub peak: f32,
     pub total: usize,
+    /// The finite fraction of steps used for warmup, in the inclusive range [0, 1].
     pub warmup_fraction: f32,
     pub start_divisor: f32,
     pub final_divisor: f32,
@@ -133,8 +145,17 @@ impl OneCycle {
 }
 
 impl LrSchedule for OneCycle {
+    /// # Panics
+    ///
+    /// Panics if `warmup_fraction` is not finite or is outside [0, 1].
     fn lr_at(&self, step: usize) -> f32 {
-        let warmup = (self.warmup_fraction * self.total as f32) as usize;
+        assert!(
+            (0.0..=1.0).contains(&self.warmup_fraction),
+            "warmup_fraction must be in [0, 1], got {}",
+            self.warmup_fraction
+        );
+        // Converting total to f32 can round warmup above total even at a fraction of 1.
+        let warmup = ((self.warmup_fraction * self.total as f32) as usize).min(self.total);
         let start = self.peak / self.start_divisor;
         let end = self.peak / self.final_divisor;
 
