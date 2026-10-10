@@ -6,7 +6,12 @@ that way.
 
 If you want to work on something bigger than a bug fix, open an issue first so
 we can agree on the shape before you write it. Issues labelled
-`good first issue` are a decent place to start.
+`good first issue` are a decent place to start, and `help wanted` is for
+bigger work, mostly performance. Comment on an issue before you start on it
+so two people don't write the same fix.
+
+During Hacktoberfest the [pinned issue](https://github.com/CanReader/FastNN/issues/56)
+explains what gets the `hacktoberfest-accepted` label.
 
 ## Setup
 
