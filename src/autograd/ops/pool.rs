@@ -1,12 +1,11 @@
-//! Derivatives of pooling — each one routes the gradient the way the forward
-//! pass routed the values.
+//! Derivatives of pooling, which route the gradient the way the forward did.
 
 use crate::autograd::Backward;
 use crate::tensor::ops::conv::Window;
 use crate::tensor::ops::pool::adaptive_range;
 use crate::tensor::Tensor;
 
-/// Only the winning input affected the output, so only it gets the gradient.
+/// Only the winning input gets the gradient.
 pub struct MaxPool2dBackward {
     pub shape: Vec<usize>,
     pub winners: Vec<usize>,
@@ -16,7 +15,7 @@ impl Backward for MaxPool2dBackward {
     fn backward(&self, grad: &Tensor) -> Vec<Tensor> {
         let g = grad.to_vec();
         let mut out = vec![0.0f32; self.shape.iter().product()];
-        // `+=`, not `=`: overlapping windows can pick the same winner.
+        // overlapping windows can share a winner
         for (slot, &winner) in self.winners.iter().enumerate() {
             out[winner] += g[slot];
         }
@@ -27,7 +26,7 @@ impl Backward for MaxPool2dBackward {
     }
 }
 
-/// Every input in the window contributed `1/count`, so each gets that share.
+/// Each input in the window gets `1/count` of the gradient.
 pub struct AvgPool2dBackward {
     pub shape: Vec<usize>,
     pub window: Window,
@@ -58,7 +57,7 @@ impl Backward for AvgPool2dBackward {
     }
 }
 
-/// Same idea, over the input-size-dependent spans the forward pass averaged.
+/// Same, over the spans the forward averaged.
 pub struct AdaptiveAvgPool2dBackward {
     pub shape: Vec<usize>,
     pub output: (usize, usize),

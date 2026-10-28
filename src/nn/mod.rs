@@ -1,32 +1,5 @@
-//! Neural network layers.
-//!
-//! Everything implements [`Module`]. A layer's weights are [`Param`] handles —
-//! shared slots, not owned values — which is why the optimizer can hold them at
-//! the same time as the model:
-//!
-//! ```
-//! use fastnn::prelude::*;
-//!
-//! let model = Sequential::new()
-//!     .add(Linear::new(8, 16))
-//!     .add(ReLU)
-//!     .add(Linear::new(16, 2));
-//!
-//! let mut opt = SGD::new(model.parameters(), 0.1);
-//!
-//! let logits = model.forward(&Tensor::randn(&[4, 8]));
-//! let loss = cross_entropy(&logits, &[0, 1, 1, 0]);
-//!
-//! opt.zero_grad();
-//! loss.backward();
-//! opt.step();
-//! ```
-//!
-//! ## Writing a layer
-//!
-//! Implement [`forward`](Module::forward), and [`named_parameters`](Module::named_parameters)
-//! if it has weights. Device placement, parameter counting, and gradient zeroing
-//! come from those for free.
+//! Layers, losses and decoding helpers. Everything implements [`Module`], and a
+//! layer's weights are shared [`Param`] handles so an optimizer can hold them too.
 
 pub mod activation;
 pub mod attention;

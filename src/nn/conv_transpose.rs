@@ -1,27 +1,18 @@
-//! Transposed convolution: the layer that makes images bigger.
+//! Transposed convolution, the forward pass of which is the convolution's
+//! backward pass: multiply by the transposed weight, then `col2im`.
 //!
-//! A convolution's forward pass is `weight · im2col(x)`; its gradient scatters
-//! back through `col2im`. Transposed convolution simply *runs that adjoint as
-//! the forward pass* — multiply by the transposed weight, then `col2im` — so
-//! upsampling in a decoder or GAN generator is literally the gradient of the
-//! downsampling it mirrors. Nothing here is new machinery: both halves already
-//! exist, on both devices, with their derivatives.
-//!
-//! Sizes invert accordingly: a convolution maps `H → (H + 2p − span)/s + 1`,
-//! so this maps `H → (H−1)·s − 2p + span (+ output_padding)`, where
-//! `span = (k−1)·d + 1`. `output_padding` disambiguates strided shapes — with
-//! `s = 2`, inputs of 5 and 6 both convolve to 3, and it picks which one to
-//! return to.
+//! Output size is `(H−1)·s − 2p + (k−1)·d + 1 + output_padding`. The padding
+//! picks between inputs that convolve to the same size (5 and 6 at stride 2).
 
 use crate::tensor::{Tensor, Window};
 
+use super::linear::uniform_bias;
 use super::module::Module;
 use super::param::Param;
 
 /// Transposed 2-D convolution over `[N, C, H, W]`.
 pub struct ConvTranspose2d {
-    /// `[in_channels, out_channels, kh, kw]` — the mirror of [`Conv2d`](super::Conv2d)'s
-    /// layout, because this layer is the mirror of its data flow.
+    /// `[in_channels, out_channels, kh, kw]`, the reverse of [`Conv2d`](super::Conv2d)'s layout.
     pub weight: Param,
     pub bias: Option<Param>,
     window: Window,
@@ -55,19 +46,13 @@ impl ConvTranspose2d {
         bias: bool,
     ) -> ConvTranspose2d {
         let (kh, kw) = window.kernel;
-        // Fan-in from the producing side: each output pixel receives from
-        // roughly (out? no —) `in_channels·k²/s²` inputs; the conventional
-        // init uses the weight's own receptive size, as Conv2d does.
         let fan_in = in_channels * kh * kw;
         ConvTranspose2d {
             weight: Param::new(Tensor::kaiming_uniform(
                 &[in_channels, out_channels, kh, kw],
                 fan_in,
             )),
-            bias: bias.then(|| {
-                let bound = 1.0 / (fan_in as f32).sqrt();
-                Param::new(Tensor::uniform(&[out_channels], -bound, bound))
-            }),
+            bias: bias.then(|| Param::new(uniform_bias(out_channels, fan_in))),
             window,
             in_channels,
             out_channels,
@@ -75,8 +60,7 @@ impl ConvTranspose2d {
         }
     }
 
-    /// Extra rows/columns on the output's far edge, for hitting an exact target
-    /// size under stride. Must be smaller than the stride.
+    /// Extra rows and columns on the far edge. Must be smaller than the stride.
     pub fn output_padding(mut self, padding: usize) -> ConvTranspose2d {
         assert!(
             padding < self.window.stride.0 && padding < self.window.stride.1,
@@ -132,9 +116,7 @@ impl Module for ConvTranspose2d {
         let (batch, height, width) = (input.dim(0), input.dim(2), input.dim(3));
         let (out_h, out_w) = self.output_size(height, width);
 
-        // weightᵀ · x: [out_c·kh·kw, in_c] × [N, in_c, H·W] → columns, then
-        // fold the columns into the larger image. matmul_tn reads the weight
-        // transposed in place, and broadcasts it across the batch.
+        // matmul_tn reads the weight transposed in place and broadcasts it over the batch
         let flat = input.reshape(&[
             batch as i64,
             self.in_channels as i64,
@@ -159,8 +141,7 @@ impl Module for ConvTranspose2d {
     }
 }
 
-/// Transposed 1-D convolution over `[N, C, L]`: the 2-D layer on a 1-pixel-tall
-/// image, which is not a shortcut but the definition — the maths is identical.
+/// Transposed 1-D convolution over `[N, C, L]`, the 2-D layer on a 1-pixel-tall image.
 pub struct ConvTranspose1d {
     inner: ConvTranspose2d,
 }

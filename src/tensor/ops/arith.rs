@@ -1,4 +1,4 @@
-//! Element-wise arithmetic, with NumPy broadcasting.
+//! Element-wise arithmetic with broadcasting.
 
 use crate::autograd::ops::arith::{
     AddBackward, DivBackward, MulBackward, MulScalarBackward, SubBackward,
@@ -66,8 +66,7 @@ impl Tensor {
     }
 }
 
-// Operator sugar for the common infix forms. Taking references keeps the
-// no-copy semantics visible at the call site: `&a + &b`.
+// Operators are on references (`&a + &b`) so nothing gets moved.
 macro_rules! impl_binary_operator {
     ($trait:ident, $method:ident, $op:ident) => {
         impl std::ops::$trait for &Tensor {

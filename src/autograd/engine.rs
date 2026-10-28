@@ -1,4 +1,4 @@
-//! The reverse pass: walk the graph from a scalar loss back to the leaves.
+//! The reverse pass from a scalar loss back to the leaves.
 
 use std::collections::{HashMap, HashSet};
 
@@ -6,14 +6,11 @@ use crate::tensor::Tensor;
 
 use super::node::{Node, NodeId};
 
-/// Seed `loss` with a gradient of 1 and propagate it to every reachable leaf.
+/// Propagate a gradient of 1 from `loss` to every reachable leaf.
 ///
-/// Gradients land in each parameter's slot, additively — call
-/// [`Optimizer::zero_grad`](crate::optim::Optimizer::zero_grad) between steps, or
-/// skip it to accumulate across micro-batches.
-///
-/// Panics if `loss` is not a scalar. Does nothing if `loss` carries no graph
-/// (a constant, or built inside [`no_grad`](super::no_grad)).
+/// Gradients add into the parameter slots, so call
+/// [`Optimizer::zero_grad`](crate::optim::Optimizer::zero_grad) between steps.
+/// Panics if `loss` is not a scalar, does nothing if it has no graph.
 pub fn backward(loss: &Tensor) {
     assert_eq!(
         loss.numel(),
@@ -23,8 +20,7 @@ pub fn backward(loss: &Tensor) {
     );
     let Some(root) = loss.grad_fn() else { return };
 
-    // Seed on the loss's own device: every rule derives its output's device from
-    // the incoming gradient, so seeding on the wrong one poisons the whole pass.
+    // rules take their device from the incoming gradient, so seed on the loss's
     let mut grads: HashMap<NodeId, Tensor> = HashMap::new();
     grads.insert(root.id(), Tensor::ones(&[1]).to(loss.device()));
 
@@ -41,8 +37,7 @@ pub fn backward(loss: &Tensor) {
             Node::Op(op) => op,
         };
 
-        // Rules compute with ordinary tensor ops. Suppressing tracking here means
-        // a rule that forgets to detach a saved value still cannot grow a graph.
+        // no_grad so a rule that forgets to detach a saved value cannot grow a graph
         let input_grads = super::no_grad(|| op.rule.backward(&grad));
 
         if super::anomaly::is_detecting() {
@@ -69,10 +64,8 @@ pub fn backward(loss: &Tensor) {
     }
 }
 
-/// Nodes ordered so that every consumer comes before the values it consumed.
-///
-/// Depth-first post-order reversed. The traversal is iterative because a
-/// transformer's graph is deeper than a comfortable recursion limit.
+/// Nodes with every consumer before the values it consumed. Iterative, since
+/// deep graphs would overflow the stack.
 fn reverse_topological(root: &Node) -> Vec<Node> {
     let mut order = Vec::new();
     let mut visited = HashSet::new();

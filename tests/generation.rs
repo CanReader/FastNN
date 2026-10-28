@@ -1,10 +1,8 @@
-//! The inference paths behind text generation: KV-cached decoding must match
-//! the plain forward pass, and sampling must be reproducible and honor its
-//! filters.
+//! Cached decoding against the plain forward, plus sampling and beam search.
 
 use fastnn::prelude::*;
 
-/// A small causal stack in eval mode, so dropout is identity on both paths.
+/// Eval mode, so dropout is identity on both paths.
 fn stack() -> TransformerStack {
     manual_seed(7);
     let stack = TransformerStack::causal(32, 4, 64, 2, 0.1);
@@ -12,19 +10,19 @@ fn stack() -> TransformerStack {
     stack
 }
 
+const TOLERANCE: f32 = 1e-3;
+
 fn assert_close(a: &Tensor, b: &Tensor, what: &str) {
     let (a, b) = (a.to_vec(), b.to_vec());
     assert_eq!(a.len(), b.len(), "{what}: lengths differ");
     for (i, (x, y)) in a.iter().zip(&b).enumerate() {
         assert!(
-            (x - y).abs() < 1e-3,
+            (x - y).abs() < TOLERANCE,
             "{what}: element {i} differs, {x} vs {y}"
         );
     }
 }
 
-/// Token-by-token decoding through the cache must produce the same outputs as
-/// one uncached forward over the whole sequence.
 #[test]
 fn cached_decoding_matches_full_forward() {
     let stack = stack();
@@ -40,8 +38,7 @@ fn cached_decoding_matches_full_forward() {
     assert_eq!(cache.len(), 6);
 }
 
-/// A multi-token prefill followed by single-token steps — how a prompt is
-/// actually consumed — must also match.
+/// Prefill then single steps, the way a prompt is actually consumed.
 #[test]
 fn prefill_then_single_steps_matches_full_forward() {
     let stack = stack();
@@ -59,7 +56,6 @@ fn prefill_then_single_steps_matches_full_forward() {
     }
 }
 
-/// Clearing the cache must give the same results as a fresh one.
 #[test]
 fn cleared_cache_starts_over() {
     let stack = stack();
@@ -92,7 +88,7 @@ fn top_k_of_one_is_greedy_at_any_temperature() {
 
 #[test]
 fn tiny_top_p_is_greedy() {
-    // The most likely token alone already exceeds p, so it is the whole nucleus.
+    // The top token alone already exceeds p.
     let logits = Tensor::from_vec(vec![0.1, 3.0, -2.0, 1.5], &[4]);
     let sampler = Sampler::new().top_p(0.01);
     for _ in 0..20 {
@@ -114,7 +110,7 @@ fn sampling_is_reproducible_under_manual_seed() {
 
 #[test]
 fn sampling_respects_the_distribution() {
-    // With one logit far above the rest, anything else is (2e-9)-unlikely.
+    // Anything else is about 2e-9 likely.
     let logits = Tensor::from_vec(vec![10.0, -10.0, -10.0], &[3]);
     let sampler = Sampler::new();
     for _ in 0..100 {
@@ -122,8 +118,7 @@ fn sampling_respects_the_distribution() {
     }
 }
 
-/// A masked (padded) key position must have no influence on other positions:
-/// change its content and every unpadded row's output stays identical.
+/// Changing a padded position must not change the unpadded outputs.
 #[test]
 fn padding_mask_blocks_padded_positions() {
     let encoder = TransformerStack::encoder(16, 2, 32, 1, 0.1);
@@ -131,7 +126,6 @@ fn padding_mask_blocks_padded_positions() {
     let mask = Tensor::from_vec(vec![1.0, 1.0, 1.0, 0.0], &[1, 4]);
 
     let a = Tensor::randn(&[1, 4, 16]);
-    // Same first three positions, different content in the padded fourth.
     let mut data = a.to_vec();
     for slot in data.iter_mut().skip(3 * 16) {
         *slot += 5.0;
@@ -147,8 +141,7 @@ fn padding_mask_blocks_padded_positions() {
     );
 }
 
-/// Same property through the decoder's cross-attention: masked memory
-/// positions must not reach the target side at all.
+/// Same through the decoder's cross-attention.
 #[test]
 fn memory_mask_blocks_padded_source_positions() {
     let decoder = TransformerDecoder::new(16, 2, 32, 1, 0.1);
@@ -172,16 +165,15 @@ fn memory_mask_blocks_padded_source_positions() {
     );
 }
 
-/// The best second token can hide behind the second-best first token; a width
-/// of 2 must find the sequence a greedy width of 1 misses.
+/// The best path can start with the second-best token.
 #[test]
 fn beam_search_finds_what_greedy_misses() {
     let step = |seq: &[usize]| match seq.last() {
-        // From the start: token 0 is slightly likelier than token 1.
+        // Token 0 is slightly likelier than token 1 at the start.
         Some(9) => vec![0.55f32.ln(), 0.45f32.ln(), f32::NEG_INFINITY],
-        // After the greedy pick, everything is mediocre.
+        // After the greedy pick everything is mediocre.
         Some(0) => vec![0.5f32.ln(), 0.5f32.ln(), f32::NEG_INFINITY],
-        // After the runner-up, one continuation is near-certain.
+        // After the runner-up one continuation is near-certain.
         _ => vec![0.99f32.ln(), 0.01f32.ln(), f32::NEG_INFINITY],
     };
 
@@ -197,7 +189,7 @@ fn beam_search_finds_what_greedy_misses() {
 
 #[test]
 fn beam_search_stops_at_eos() {
-    // Token 2 is end-of-sequence and always the most likely continuation.
+    // Token 2 is eos and always the most likely.
     let step = |_: &[usize]| vec![0.0, 1.0, 5.0];
     let out = BeamSearch::new(2).eos(2).decode(&[0], 10, step);
     assert!(

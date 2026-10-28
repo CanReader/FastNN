@@ -1,11 +1,5 @@
-//! Transformer decoder blocks and the full encoder-decoder Transformer.
-//!
-//! A decoder block extends the encoder block with one more sub-layer: after
-//! causal self-attention, each target position attends over the encoder's
-//! output (the *memory*). That is what lets translation, summarisation, and
-//! any other sequence-to-sequence model read its input while writing its
-//! output. Decoder-only models like GPT do not need this file —
-//! [`TransformerStack::causal`] is the whole architecture.
+//! Decoder blocks with cross-attention over encoder output (the memory), and the
+//! encoder-decoder [`Transformer`]. Decoder-only models just use [`TransformerStack::causal`].
 
 use crate::tensor::Tensor;
 
@@ -17,8 +11,7 @@ use super::norm::LayerNorm;
 use super::param::Param;
 use super::transformer::{Activation, TransformerStack};
 
-/// One pre-norm decoder block: causal self-attention, cross-attention over the
-/// encoder memory, then a feed-forward network, each wrapped in a residual.
+/// Pre-norm decoder block: causal self-attention, cross-attention, feed-forward.
 pub struct TransformerDecoderBlock {
     pub self_attention: MultiHeadAttention,
     pub cross_attention: MultiHeadAttention,
@@ -56,11 +49,8 @@ impl TransformerDecoderBlock {
         self.decode_masked(target, memory, None)
     }
 
-    /// [`decode`](Self::decode) with a padding mask for the memory:
-    /// `[batch, source_len]`, 1 for real encoder positions and 0 for padding.
-    ///
-    /// The query side is normalized per sub-layer as usual; the memory arrives
-    /// already normalized by the encoder's final norm and is used as-is.
+    /// [`decode`](Self::decode) with a memory padding mask, `[batch, source_len]`,
+    /// 1 for real positions. The memory is already normed by the encoder, so it is used as-is.
     pub fn decode_masked(
         &self,
         target: &Tensor,
@@ -84,8 +74,7 @@ impl TransformerDecoderBlock {
 }
 
 impl Module for TransformerDecoderBlock {
-    /// Degenerate single-input form: the target attends over itself as memory.
-    /// Real sequence-to-sequence use goes through [`decode`](Self::decode).
+    /// Attends over the input as its own memory. Real use goes through [`decode`](Self::decode).
     fn forward(&self, input: &Tensor) -> Tensor {
         self.decode(input, input)
     }
@@ -154,7 +143,7 @@ impl TransformerDecoder {
 }
 
 impl Module for TransformerDecoder {
-    /// Degenerate single-input form; see [`TransformerDecoderBlock::forward`].
+    /// Attends over the input as its own memory.
     fn forward(&self, input: &Tensor) -> Tensor {
         self.decode(input, input)
     }
@@ -177,12 +166,7 @@ impl Module for TransformerDecoder {
     }
 }
 
-/// The full encoder-decoder Transformer: a bidirectional encoder over the
-/// source, a causal decoder over the target with cross-attention into the
-/// encoder's output.
-///
-/// Embeddings and the output head stay outside, as they do for
-/// [`TransformerStack`] — this is the trunk, not the whole model.
+/// Encoder-decoder Transformer trunk. Embeddings and the output head stay outside.
 pub struct Transformer {
     pub encoder: TransformerStack,
     pub decoder: TransformerDecoder,
@@ -214,9 +198,7 @@ impl Transformer {
         self.run_masked(source, target, None)
     }
 
-    /// [`run`](Self::run) with a source padding mask, applied both to the
-    /// encoder's self-attention and to the decoder's cross-attention — the two
-    /// places a padded source position could leak in.
+    /// [`run`](Self::run) with a source padding mask, used by the encoder and the cross-attention.
     pub fn run_masked(
         &self,
         source: &Tensor,
@@ -229,8 +211,7 @@ impl Transformer {
 }
 
 impl Module for Transformer {
-    /// Degenerate single-input form: encode and decode the same sequence.
-    /// Real sequence-to-sequence use goes through [`run`](Self::run).
+    /// Encodes and decodes the same sequence. Real use goes through [`run`](Self::run).
     fn forward(&self, input: &Tensor) -> Tensor {
         self.run(input, input)
     }

@@ -11,10 +11,11 @@ use super::linear::Linear;
 use super::module::{scoped, Module};
 use super::param::Param;
 
-/// Attention over `[batch, sequence, embed_dim]`.
-///
-/// Heads are not separate tensors: one projection produces all of them, and the
-/// head axis is folded into the batch so a single batched GEMM covers every head.
+/// Large negative added to masked scores, so softmax gives them zero weight.
+const MASKED: f32 = -1e9;
+
+/// Attention over `[batch, sequence, embed_dim]`. The head axis is folded into the
+/// batch, so one batched GEMM covers every head.
 pub struct MultiHeadAttention {
     pub query: Linear,
     pub key: Linear,
@@ -42,25 +43,18 @@ impl MultiHeadAttention {
             dropout: Dropout::new(dropout),
             heads,
             head_dim,
-            // Without this, dot products grow with head_dim and softmax saturates.
+            // dot products grow with head_dim and would saturate the softmax
             scale: 1.0 / (head_dim as f32).sqrt(),
         }
     }
 
-    /// Attend from `query` over `key`/`value`.
-    ///
-    /// With `causal` set, position `i` can only see positions `≤ i` — what a
-    /// language model needs so it cannot read ahead.
+    /// Attend from `query` over `key`/`value`. With `causal`, position `i` sees only `≤ i`.
     pub fn attend(&self, query: &Tensor, key: &Tensor, value: &Tensor, causal: bool) -> Tensor {
         self.attend_masked(query, key, value, causal, None)
     }
 
-    /// [`attend`](Self::attend) with an optional key padding mask.
-    ///
-    /// `key_mask` is `[batch, kv_len]`: 1 where a key position is real, 0 where
-    /// it is padding. Padded positions get the same additive `-1e9` treatment as
-    /// the causal mask, so softmax gives them zero weight and batches of
-    /// unequal-length sequences attend only to their own content.
+    /// [`attend`](Self::attend) with an optional padding mask, `[batch, kv_len]`,
+    /// 1 for real keys and 0 for padding.
     pub fn attend_masked(
         &self,
         query: &Tensor,
@@ -77,11 +71,9 @@ impl MultiHeadAttention {
         let k = self.split_heads(&self.key.forward(key), batch, kv_len);
         let v = self.split_heads(&self.value.forward(value), batch, kv_len);
 
-        // matmul_nt gives q · kᵀ without ever materialising kᵀ.
         let mut scores = q.matmul_nt(&k).mul_scalar(self.scale);
         if causal {
-            // An additive -inf bias rather than an in-place overwrite: the mask
-            // stays part of the graph, so gradients still flow through softmax.
+            // additive rather than an overwrite, so it stays in the graph
             scores = scores.add(&causal_mask(lanes, q_len, kv_len, scores.device()));
         }
         if let Some(mask) = key_mask {
@@ -90,11 +82,10 @@ impl MultiHeadAttention {
                 &[batch, kv_len],
                 "key mask must be [batch, kv_len] = [{batch}, {kv_len}]"
             );
-            // 1/0 keep/pad → 0/-1e9, repeated per head so it broadcasts over
-            // the [batch·heads, q_len, kv_len] scores.
+            // 1/0 becomes 0/MASKED, repeated per head to match the folded batch
             let bias = mask
                 .add_scalar(-1.0)
-                .mul_scalar(1e9)
+                .mul_scalar(-MASKED)
                 .reshape(&[batch as i64, 1, kv_len as i64])
                 .expand(&[batch, self.heads, kv_len])
                 .reshape(&[lanes as i64, 1, kv_len as i64]);
@@ -108,13 +99,8 @@ impl MultiHeadAttention {
             .forward(&self.merge_heads(&attended, batch, q_len, embed_dim))
     }
 
-    /// Causal self-attention over `input`'s new tokens plus everything in
-    /// `cache`, extending the cache as it goes.
-    ///
-    /// Inference-only: dropout is skipped and the cache stores detached
-    /// tensors, so run it under [`no_grad`](crate::autograd::no_grad). An empty
-    /// cache makes this a plain causal forward (the prefill); after that, feed
-    /// one token at a time and only the new projections are computed.
+    /// Causal self-attention over the new tokens plus `cache`, which it extends.
+    /// Inference only: no dropout, run under [`no_grad`](crate::autograd::no_grad).
     pub fn attend_cached(&self, input: &Tensor, cache: &mut KvCache) -> Tensor {
         let (batch, new_len, embed_dim) = (input.dim(0), input.dim(1), input.dim(2));
 
@@ -125,8 +111,7 @@ impl MultiHeadAttention {
         let kv_len = k.dim(1);
 
         let mut scores = q.matmul_nt(k).mul_scalar(self.scale);
-        // A single new token sits at the end of the sequence and may see all of
-        // it, so only multi-token steps need masking.
+        // one new token may see everything, so only multi-token steps need a mask
         if new_len > 1 {
             scores = scores.add(&causal_mask(
                 batch * self.heads,
@@ -171,8 +156,7 @@ impl MultiHeadAttention {
 }
 
 impl Module for MultiHeadAttention {
-    /// Self-attention with no mask. Use [`attend`](MultiHeadAttention::attend)
-    /// for cross-attention or causal masking.
+    /// Unmasked self-attention. Use [`attend`](MultiHeadAttention::attend) for the rest.
     fn forward(&self, input: &Tensor) -> Tensor {
         self.attend(input, input, input, false)
     }
@@ -195,18 +179,13 @@ impl Module for MultiHeadAttention {
 }
 
 thread_local! {
-    /// Causal masks depend only on shape and device, and every layer of every
-    /// step wants the same one — so build each exactly once per thread.
+    /// Every layer wants the same mask for a given shape, so build each once.
     static MASKS: RefCell<HashMap<(usize, usize, usize, Device), Tensor>> =
         RefCell::new(HashMap::new());
 }
 
-/// `[lanes, q_len, kv_len]`, zero where attention is allowed and a large
-/// negative where it is not, so softmax drives those weights to zero.
-///
-/// When `kv_len > q_len` the queries are the *last* `q_len` positions of the
-/// sequence — a cached decoding step — so each sees the whole prefix plus
-/// itself. With equal lengths this is the ordinary causal triangle.
+/// `[lanes, q_len, kv_len]`, zero where attention is allowed and [`MASKED`] elsewhere.
+/// When `kv_len > q_len` the queries are the last `q_len` positions (a cached step).
 fn causal_mask(lanes: usize, q_len: usize, kv_len: usize, device: Device) -> Tensor {
     MASKS.with(|cache| {
         cache
@@ -219,7 +198,7 @@ fn causal_mask(lanes: usize, q_len: usize, kv_len: usize, device: Device) -> Ten
                         let query_pos = (i / kv_len) % q_len;
                         let key_pos = i % kv_len;
                         if key_pos > query_pos + offset {
-                            -1e9
+                            MASKED
                         } else {
                             0.0
                         }

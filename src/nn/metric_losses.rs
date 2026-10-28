@@ -1,29 +1,18 @@
-//! Losses over embedding geometry: pull related points together, push
-//! unrelated ones apart.
-//!
-//! Classification losses grade a prediction against a label; these grade the
-//! *shape of the embedding space* itself — distances and angles between pairs
-//! and triples — which is what retrieval, verification, and self-supervised
-//! pretraining actually optimize. All of them compose from ordinary
-//! differentiable ops, so their gradients come from the existing rules.
+//! Losses on embedding geometry (pairs and triples), built from ordinary ops.
 
 use crate::tensor::Tensor;
 
 use super::loss::cross_entropy;
 
-/// Guards divisions and square roots at zero distance, where the true
-/// derivative of ‖·‖₂ does not exist.
+/// The derivative of a norm is undefined at zero, so keep sqrt and division off it.
 const EPS: f32 = 1e-8;
 
-/// Row-wise Euclidean distance between `[batch, dim]` tensors → `[batch, 1]`.
-///
-/// `√(Σd² + ε)` rather than `√Σd²`: at zero distance the exact root has an
-/// undefined gradient, and the ε turns it into a smooth minimum instead.
+/// Row-wise Euclidean distance, `[batch, dim]` to `[batch, 1]`.
 fn row_distance(a: &Tensor, b: &Tensor) -> Tensor {
     a.sub(b).square().sum_axis_keep(1).add_scalar(EPS).sqrt()
 }
 
-/// Row-wise cosine similarity between `[batch, dim]` tensors → `[batch, 1]`.
+/// Row-wise cosine similarity, `[batch, dim]` to `[batch, 1]`.
 fn row_cosine(a: &Tensor, b: &Tensor) -> Tensor {
     let dot = a.mul(b).sum_axis_keep(1);
     let norms = a
@@ -43,12 +32,8 @@ fn mask(targets: &[f32], predicate: impl Fn(f32) -> bool, device: crate::tensor:
     Tensor::from_vec(values, &[targets.len(), 1]).to(device)
 }
 
-/// Cosine embedding loss: for each row pair, `1 − cos` when `target = +1`,
-/// `max(0, cos − margin)` when `target = −1`.
-///
-/// Similar pairs are pulled to angle zero; dissimilar ones are only pushed
-/// until their similarity drops below the margin — beyond that they stop
-/// mattering, which is what keeps the space from collapsing outward forever.
+/// Cosine embedding loss: `1 − cos` when `target = +1`, `max(0, cos − margin)`
+/// when `target = −1`.
 pub fn cosine_embedding(a: &Tensor, b: &Tensor, targets: &[f32], margin: f32) -> Tensor {
     assert_eq!(
         a.dim(0),
@@ -68,10 +53,6 @@ pub fn cosine_embedding(a: &Tensor, b: &Tensor, targets: &[f32], margin: f32) ->
 }
 
 /// Triplet margin loss: `max(0, d(anchor, positive) − d(anchor, negative) + margin)`.
-///
-/// The hinge goes silent once the negative is `margin` farther than the
-/// positive — only violating triplets produce gradient, so what you mine into
-/// the batch is what the model learns from.
 pub fn triplet_margin(
     anchor: &Tensor,
     positive: &Tensor,
@@ -87,8 +68,7 @@ pub fn triplet_margin(
         .mean()
 }
 
-/// Margin ranking loss: `max(0, −t·(x₁ − x₂) + margin)` with `t = ±1` saying
-/// which input should score higher. The SVM hinge, applied to rankings.
+/// Margin ranking loss: `max(0, −t·(x₁ − x₂) + margin)`, `t = ±1` picks the higher input.
 pub fn margin_ranking(x1: &Tensor, x2: &Tensor, targets: &[f32], margin: f32) -> Tensor {
     assert_eq!(
         x1.numel(),
@@ -104,11 +84,7 @@ pub fn margin_ranking(x1: &Tensor, x2: &Tensor, targets: &[f32], margin: f32) ->
     difference.mul(&sign).neg().add_scalar(margin).relu().mean()
 }
 
-/// Contrastive pair loss (Hadsell et al., 2006): `t·d² + (1−t)·max(0, m − d)²`
-/// with `t = 1` for pairs that belong together.
-///
-/// Squared distance pulls matching pairs together; non-matching pairs are
-/// pushed quadratically until they clear the margin `m`, then released.
+/// Contrastive pair loss: `t·d² + (1−t)·max(0, m − d)²`, `t = 1` for matching pairs.
 pub fn contrastive(a: &Tensor, b: &Tensor, targets: &[f32], margin: f32) -> Tensor {
     assert_eq!(
         a.dim(0),
@@ -132,13 +108,7 @@ pub fn contrastive(a: &Tensor, b: &Tensor, targets: &[f32], margin: f32) -> Tens
     pull.add(&push).mean()
 }
 
-/// InfoNCE, the loss behind CLIP and SimCLR-style pretraining.
-///
-/// Row `i` of `queries` and row `i` of `keys` are the matching pair. Both sets
-/// are L2-normalized, all pairwise similarities become logits at temperature
-/// `τ`, and each query must classify its own key out of the whole batch — so
-/// every other row serves as a free negative, and the effective task gets
-/// harder as the batch grows. Low `τ` sharpens the contrast; 0.07 is typical.
+/// InfoNCE. Row `i` of `queries` matches row `i` of `keys`, every other row is a negative.
 pub fn info_nce(queries: &Tensor, keys: &Tensor, temperature: f32) -> Tensor {
     assert!(
         temperature > 0.0,
@@ -151,7 +121,7 @@ pub fn info_nce(queries: &Tensor, keys: &Tensor, temperature: f32) -> Tensor {
         .matmul_nt(&normalize(keys))
         .div_scalar(temperature);
 
-    // The matching key for query i sits at column i: the targets are the diagonal.
+    // query i's match is column i
     let diagonal: Vec<usize> = (0..batch).collect();
     cross_entropy(&logits, &diagonal)
 }

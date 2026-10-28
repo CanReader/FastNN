@@ -1,43 +1,44 @@
-//! The smallest complete training loop: an MLP learning XOR.
+//! The smallest training loop: an MLP learning XOR.
 //!
 //!     cargo run --example simple_mlp --release
-//!
-//! XOR is not linearly separable, so a single linear layer cannot fit it at all.
-//! Two layers with a non-linearity between them can, which makes this the
-//! shortest honest test that a network is really learning.
 
 use fastnn::prelude::*;
 
+const SEED: u64 = 42;
+const HIDDEN: usize = 8;
+const LR: f32 = 0.05;
+const STEPS: usize = 400;
+const REPORT_EVERY: usize = 100;
+
 fn main() {
-    manual_seed(42);
+    manual_seed(SEED);
 
     let inputs = Tensor::from_vec(vec![0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0], &[4, 2]);
     let targets = [0usize, 1, 1, 0];
 
     let model = Sequential::new()
-        .add(Linear::new(2, 8))
+        .add(Linear::new(2, HIDDEN))
         .add(Tanh)
-        .add(Linear::new(8, 2));
+        .add(Linear::new(HIDDEN, 2));
 
-    let mut opt = Adam::new(model.parameters(), 0.05);
+    let mut opt = Adam::new(model.parameters(), LR);
 
     println!(
         "training a {}-parameter MLP on XOR\n",
         model.num_parameters()
     );
-    for step in 1..=400 {
+    for step in 1..=STEPS {
         let loss = cross_entropy(&model.forward(&inputs), &targets);
 
         opt.zero_grad();
         loss.backward();
         opt.step();
 
-        if step % 100 == 0 {
+        if step % REPORT_EVERY == 0 {
             println!("  step {step:3}  loss {:.4}", loss.item());
         }
     }
 
-    // Inference builds no graph, so skip it.
     let predictions = no_grad(|| model.forward(&inputs)).argmax(1);
     let values = inputs.to_vec();
 

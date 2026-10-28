@@ -1,23 +1,5 @@
-//! Fallible variants of the ops that can disagree about shape.
-//!
-//! The ordinary ops panic, because inside a model a shape mismatch is a bug and
-//! threading `Result` through every `add` would bury the maths in `?`. But at the
-//! edge of an application — a shape from a config file, a batch from a user
-//! upload, a checkpoint from elsewhere — a mismatch is *data*, and an app should
-//! report it rather than die.
-//!
-//! Every function here validates, then delegates to the panicking op. There is
-//! one implementation of each operation, and this file only decides whether
-//! reaching it is safe.
-//!
-//! ```
-//! # use fastnn::prelude::*;
-//! let x = Tensor::zeros(&[4, 8]);
-//! let w = Tensor::zeros(&[3, 3]);
-//!
-//! assert!(x.try_matmul(&w).is_err());   // reported
-//! // x.matmul(&w)                       // would panic
-//! ```
+//! `try_*` variants of the ops that can disagree about shape. Each validates and
+//! then calls the panicking op, so there is only one implementation of each.
 
 use crate::error::{Error, Result};
 
@@ -128,8 +110,6 @@ impl Tensor {
         Ok(self.index_select(ids))
     }
 
-    // ── Validation ───────────────────────────────────────────────────────────
-
     fn check_same_device(&self, other: &Tensor, op: &str) -> Result<()> {
         if self.device() != other.device() {
             return Err(Error::Shape(format!(
@@ -141,7 +121,6 @@ impl Tensor {
         Ok(())
     }
 
-    /// Matmul needs rank 2+ on both sides before any inner axis even exists.
     fn check_matmul_rank(&self, other: &Tensor) -> Result<()> {
         if self.ndim() < 2 || other.ndim() < 2 {
             return Err(Error::Shape(format!(
@@ -153,7 +132,7 @@ impl Tensor {
         Ok(())
     }
 
-    /// Matching inner dimensions and compatible batches; rank is already checked.
+    /// Assumes the rank check already passed.
     fn check_matmul_dims(&self, other: &Tensor, inner: usize, other_inner: usize) -> Result<()> {
         if inner != other_inner {
             return Err(Error::Shape(format!(

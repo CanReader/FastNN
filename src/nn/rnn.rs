@@ -1,20 +1,12 @@
-//! Recurrent layers.
-//!
-//! Both cells are written with ordinary differentiable tensor ops, so they train
-//! through backpropagation-through-time with no gradient code of their own. The
-//! cost is one graph node per gate per timestep: correct, and fine for short
-//! sequences, but a transformer will be far faster on long ones.
-//!
-//! Each layer is single-layer and unidirectional. Stack them in a
-//! [`Sequential`](super::Sequential) — the `[batch, sequence, hidden]` output
-//! feeds straight into the next.
+//! Single-layer, unidirectional LSTM and GRU built from ordinary tensor ops, so
+//! one graph node per gate per timestep. Stack them in a [`Sequential`](super::Sequential).
 
 use crate::tensor::Tensor;
 
 use super::module::Module;
 use super::param::Param;
 
-/// The four weight tensors every gated recurrent cell has.
+/// Weights shared by both cells.
 struct Gates {
     input_weight: Param,
     hidden_weight: Param,
@@ -56,10 +48,6 @@ impl Gates {
 }
 
 /// Long short-term memory.
-///
-/// Carries a cell state alongside the hidden state; the forget gate multiplies
-/// it rather than replacing it, which is what keeps gradients alive over long
-/// spans.
 pub struct LSTM {
     gates: Gates,
     input_size: usize,
@@ -69,9 +57,7 @@ pub struct LSTM {
 impl LSTM {
     pub fn new(input_size: usize, hidden_size: usize) -> LSTM {
         let gates = Gates::new(input_size, hidden_size, 4);
-        // Start the forget gate open. At zero bias the sigmoid sits at 0.5 and
-        // halves the cell state every step, so early gradients vanish before the
-        // model has learned what to keep.
+        // forget gate starts open, at zero bias it halves the cell state every step
         let mut bias = gates.input_bias.value().to_vec();
         bias[hidden_size..2 * hidden_size].fill(1.0);
         gates
@@ -85,10 +71,7 @@ impl LSTM {
         }
     }
 
-    /// Run over `[batch, sequence, input_size]`.
-    ///
-    /// Returns the per-step outputs `[batch, sequence, hidden_size]` plus the
-    /// final hidden and cell states.
+    /// Run over `[batch, sequence, input_size]`, returning outputs and the final `(h, c)`.
     pub fn run(
         &self,
         input: &Tensor,
@@ -132,7 +115,7 @@ impl Module for LSTM {
     }
 }
 
-/// Gated recurrent unit — LSTM's gating with no separate cell state.
+/// Gated recurrent unit, LSTM's gating with no separate cell state.
 pub struct GRU {
     gates: Gates,
     input_size: usize,
@@ -148,8 +131,7 @@ impl GRU {
         }
     }
 
-    /// Run over `[batch, sequence, input_size]`, returning the outputs and the
-    /// final hidden state.
+    /// Run over `[batch, sequence, input_size]`, returning outputs and the final hidden state.
     pub fn run(&self, input: &Tensor, initial: Option<&Tensor>) -> (Tensor, Tensor) {
         let (batch, steps) = check_sequence(input, self.input_size, "GRU");
         let mut h = initial
@@ -166,8 +148,7 @@ impl GRU {
             };
             let reset = part(&from_input, 0).add(&part(&from_hidden, 0)).sigmoid();
             let update = part(&from_input, 1).add(&part(&from_hidden, 1)).sigmoid();
-            // The reset gate scales the *hidden* contribution only, letting the
-            // candidate ignore history without ignoring the current input.
+            // reset scales the hidden contribution only
             let candidate = part(&from_input, 2)
                 .add(&reset.mul(&part(&from_hidden, 2)))
                 .tanh();

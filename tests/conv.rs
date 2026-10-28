@@ -1,17 +1,19 @@
-//! Convolution-variant semantics, checked against the definitions.
+//! Convolution variants checked against their definitions.
 
 use fastnn::prelude::*;
 use fastnn::tensor::Window;
 
+const TOLERANCE: f32 = 1e-4;
+
 #[track_caller]
 fn assert_close(got: f32, want: f32, what: &str) {
-    assert!((got - want).abs() < 1e-4, "{what}: got {got}, want {want}");
+    assert!(
+        (got - want).abs() < TOLERANCE,
+        "{what}: got {got}, want {want}"
+    );
 }
 
-/// Transposed convolution IS the adjoint of convolution: with a shared weight
-/// and no bias, ⟨conv(x), y⟩ = ⟨x, convᵀ(y)⟩ for every x and y. This is the
-/// defining property — if it holds for random tensors, the layer computes the
-/// transpose of the same linear map, output padding, stride, and all.
+/// With a shared weight and no bias, <conv(x), y> = <x, convT(y)>.
 #[test]
 fn conv_transpose_is_the_exact_adjoint_of_conv() {
     manual_seed(12);
@@ -19,14 +21,10 @@ fn conv_transpose_is_the_exact_adjoint_of_conv() {
     let conv = Conv2d::with_window(2, 3, window, false);
     let transpose = ConvTranspose2d::with_window(3, 2, window, false);
 
-    // Same matrix in both layers. Conv flattens [out, in, kh, kw] to
-    // [out, in·kh·kw]; the transpose flattens its [in_t=out, out_t=in, kh, kw]
-    // to the same [out, in·kh·kw] and reads it transposed in the GEMM — so the
-    // raw buffers coincide element for element.
+    // Both layers flatten the weight to the same [out, in*kh*kw] buffer.
     transpose.weight.set_value(conv.weight.value());
 
-    // 7 satisfies (size + 2p − k) % s = 0, so conv's input size is recoverable
-    // exactly; a size like 6 would need output_padding to disambiguate.
+    // 7 satisfies (size + 2p - k) % s = 0, a size like 6 would need output_padding.
     let x = Tensor::randn(&[2, 2, 7, 7]);
     let forward = no_grad(|| conv.forward(&x)); // [2, 3, 4, 4]
     let y = Tensor::randn(&[2, 3, 4, 4]);
@@ -35,13 +33,12 @@ fn conv_transpose_is_the_exact_adjoint_of_conv() {
     let lhs = forward.mul(&y).sum().item();
     let rhs = x.mul(&backward).sum().item();
     assert!(
-        (lhs - rhs).abs() / lhs.abs().max(1.0) < 1e-4,
+        (lhs - rhs).abs() / lhs.abs().max(1.0) < TOLERANCE,
         "adjoint identity violated: ⟨conv x, y⟩ = {lhs} but ⟨x, convᵀ y⟩ = {rhs}"
     );
 }
 
-/// The smallest checkable upsample: a 1×1 input through a 2×2 all-ones kernel
-/// at stride 2 paints the value into every cell of a 2×2 output.
+/// A 1x1 input through a 2x2 all-ones kernel at stride 2 fills a 2x2 output.
 #[test]
 fn conv_transpose_upsamples_a_pixel_by_hand() {
     let layer = ConvTranspose2d::with_window(1, 1, Window::square(2, 2, 0), false);
@@ -54,8 +51,7 @@ fn conv_transpose_upsamples_a_pixel_by_hand() {
     assert_eq!(out.to_vec(), vec![5.0; 4]);
 }
 
-/// Depthwise convolution with 1×1 kernels reduces to a per-channel scale —
-/// and the channels must not mix.
+/// With 1x1 kernels this is a per-channel scale and the channels must not mix.
 #[test]
 fn depthwise_keeps_channels_separate() {
     let layer = Conv2d::depthwise(2, 1, 1, 0);
@@ -75,8 +71,7 @@ fn depthwise_keeps_channels_separate() {
     );
 }
 
-/// A dilated kernel reads every d-th input: `out[t] = a·x[t] + b·x[t+2]` for
-/// kernel `[a, b]` at dilation 2, worked by hand on a length-5 sequence.
+/// Kernel `[a, b]` at dilation 2 gives `out[t] = a*x[t] + b*x[t+2]`.
 #[test]
 fn dilation_stretches_the_kernel_footprint() {
     let window = Window {
@@ -92,16 +87,14 @@ fn dilation_stretches_the_kernel_footprint() {
 
     let x = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0], &[1, 1, 1, 5]);
     let out = no_grad(|| layer.forward(&x)).to_vec();
-    // Footprint spans 3, so 3 outputs: 10·x[t] + x[t+2].
     assert_eq!(out, vec![13.0, 24.0, 35.0]);
 }
 
-/// Causality, tested as a property: perturbing the future must not change the
-/// past. Length is preserved, and output t sees only inputs ≤ t.
+/// Poking a later input must not change earlier outputs.
 #[test]
 fn causal_conv1d_cannot_see_the_future() {
     manual_seed(13);
-    let layer = Conv1d::causal(1, 1, 3, 2); // footprint (3−1)·2+1 = 5, all left
+    let layer = Conv1d::causal(1, 1, 3, 2);
     let x = Tensor::randn(&[1, 1, 8]);
 
     let mut poked = x.to_vec();
@@ -119,8 +112,7 @@ fn causal_conv1d_cannot_see_the_future() {
     assert!(a[5] != b[5], "output 5 should see input 5");
 }
 
-/// Grouped convolution must equal running each group's slice through its own
-/// small convolution — computed here directly from the weight slices.
+/// Each group must match its own small convolution built from the weight slices.
 #[test]
 fn grouped_conv_equals_independent_group_convs() {
     manual_seed(14);
@@ -155,7 +147,6 @@ fn grouped_conv_equals_independent_group_convs() {
     }
 }
 
-/// Gradients reach every parameter of every new layer.
 #[test]
 fn gradients_reach_all_conv_variant_parameters() {
     let layers: Vec<(&str, Box<dyn Module>, Tensor)> = vec![
@@ -197,8 +188,6 @@ fn gradients_reach_all_conv_variant_parameters() {
     }
 }
 
-/// `Param::set_value` on shared handles must be visible through the layer —
-/// the mechanism the hand-value tests above rely on.
 #[test]
 fn output_padding_hits_the_requested_size() {
     let plain = ConvTranspose2d::new(1, 1, 3, 2, 1);

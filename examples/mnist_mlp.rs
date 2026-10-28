@@ -1,18 +1,21 @@
-//! MNIST with a two-layer MLP. Downloads the dataset on first run.
+//! MNIST with a two-layer MLP, around 97% test accuracy. Downloads the dataset
+//! on first run.
 //!
-//!     cargo run --example mnist_mlp --release
-//!     cargo run --example mnist_mlp --release --features cuda
-//!
-//! Reaches roughly 97% test accuracy in three epochs.
+//!     cargo run --example mnist_mlp --release [--features cuda]
 
 use fastnn::data::{Mnist, Split};
 use fastnn::prelude::*;
 
 const EPOCHS: usize = 3;
 const BATCH: usize = 128;
+const TEST_BATCH: usize = 1000;
+const HIDDEN: usize = 128;
+const LR: f32 = 1e-3;
+const SEED: u64 = 42;
+const REPORT_EVERY: usize = 100;
 
 fn main() -> fastnn::Result<()> {
-    manual_seed(42);
+    manual_seed(SEED);
 
     let train = Mnist::load(Split::Train)?;
     let test = Mnist::load(Split::Test)?;
@@ -25,16 +28,16 @@ fn main() -> fastnn::Result<()> {
     let device = Device::best();
     let model = Sequential::new()
         .add(Flatten::new())
-        .add(Linear::new(784, 128))
+        .add(Linear::new(784, HIDDEN))
         .add(ReLU)
-        .add(Linear::new(128, 10));
+        .add(Linear::new(HIDDEN, 10));
     model.to_device(device);
 
-    let mut opt = Adam::new(model.parameters(), 1e-3);
+    let mut opt = Adam::new(model.parameters(), LR);
     let train_loader = DataLoader::new(&train, BATCH)
         .shuffle(true)
         .to_device(device);
-    let test_loader = DataLoader::new(&test, 1000).to_device(device);
+    let test_loader = DataLoader::new(&test, TEST_BATCH).to_device(device);
 
     println!("model: {} parameters on {device}\n", model.num_parameters());
 
@@ -55,7 +58,7 @@ fn main() -> fastnn::Result<()> {
             correct += count_correct(&logits, &labels);
             seen += batch.len();
 
-            if (index + 1) % 100 == 0 {
+            if (index + 1) % REPORT_EVERY == 0 {
                 println!(
                     "  epoch {epoch}  batch {:4}/{}  loss {:.4}  acc {:.2}%",
                     index + 1,
@@ -79,7 +82,6 @@ fn main() -> fastnn::Result<()> {
     Ok(())
 }
 
-/// Fraction of the loader's items the model classifies correctly.
 fn accuracy(model: &dyn Module, loader: &DataLoader) -> f32 {
     let (mut correct, mut seen) = (0usize, 0usize);
     for batch in loader.iter() {

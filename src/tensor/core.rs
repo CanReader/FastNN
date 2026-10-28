@@ -8,16 +8,10 @@ use super::shape;
 use super::storage::Storage;
 use super::Device;
 
-/// An n-dimensional array of `f32`, on the CPU or a GPU.
+/// An n-dimensional `f32` array on the CPU or a GPU.
 ///
-/// Tensors are immutable values. Cloning one bumps a refcount rather than
-/// copying data, so passing them around is cheap and ops return new tensors
-/// instead of mutating in place.
-///
-/// A tensor either carries a graph node — meaning it descends from a parameter
-/// and gradients flow through it — or it does not, in which case it is plain
-/// data. There is no `requires_grad` flag to keep in sync: see
-/// [`grad_fn`](Tensor::grad_fn).
+/// Immutable, and cloning only bumps a refcount. A tensor with a graph node
+/// takes part in autograd, one without is plain data (see [`grad_fn`](Tensor::grad_fn)).
 #[derive(Clone)]
 pub struct Tensor {
     storage: Arc<Storage>,
@@ -27,8 +21,6 @@ pub struct Tensor {
 }
 
 impl Tensor {
-    // ── Construction ─────────────────────────────────────────────────────────
-
     /// Wrap `data` in a tensor of `shape` on the CPU.
     ///
     /// Panics if `data.len()` does not match the shape.
@@ -47,14 +39,12 @@ impl Tensor {
         Tensor::from_vec(vec![value], &[1])
     }
 
-    /// Build a tensor directly from storage. Used by ops that produce their
-    /// output on the GPU without a host round trip.
+    /// Wrap storage an op already produced, possibly on the GPU.
     pub(crate) fn raw(storage: Storage, shape: Vec<usize>, device: Device) -> Tensor {
         Tensor::raw_shared(Arc::new(storage), shape, device)
     }
 
-    /// Reuse an existing allocation under a new shape. This is what makes
-    /// `reshape` free — the tensors alias the same buffer.
+    /// Reuse an allocation under a new shape, which is what makes `reshape` free.
     pub(crate) fn raw_shared(storage: Arc<Storage>, shape: Vec<usize>, device: Device) -> Tensor {
         Tensor {
             storage,
@@ -78,8 +68,6 @@ impl Tensor {
             node: Some(Node::Leaf(slot)),
         }
     }
-
-    // ── Shape and metadata ───────────────────────────────────────────────────
 
     pub fn shape(&self) -> &[usize] {
         &self.shape
@@ -111,14 +99,12 @@ impl Tensor {
         self.shape[axis]
     }
 
-    /// The last dimension — the feature axis for most layers.
+    /// The last dimension.
     pub fn last_dim(&self) -> usize {
         *self.shape.last().expect("tensor has no dimensions")
     }
 
-    // ── Data access ──────────────────────────────────────────────────────────
-
-    /// A host copy of the data. Downloads from the GPU when needed.
+    /// A host copy of the data.
     pub fn to_vec(&self) -> Vec<f32> {
         self.storage.to_vec()
     }
@@ -147,8 +133,6 @@ impl Tensor {
         self.storage.clone()
     }
 
-    // ── Devices ──────────────────────────────────────────────────────────────
-
     /// A copy of this tensor on `device`, differentiable in both directions.
     pub fn to(&self, device: Device) -> Tensor {
         if self.device == device {
@@ -164,18 +148,13 @@ impl Tensor {
         self.to(Device::Cpu)
     }
 
-    /// Shorthand for `to(Device::Cuda(0))`. Panics if there is no GPU — use
-    /// [`Device::cuda`] when you want to handle that.
+    /// Shorthand for `to(Device::Cuda(0))`. Panics without a GPU, see [`Device::cuda`].
     pub fn cuda(&self) -> Tensor {
         self.to(Device::cuda(0).expect("cuda: no device"))
     }
 
-    // ── Autograd ─────────────────────────────────────────────────────────────
-
-    /// The graph node that produced this tensor, if any.
-    ///
-    /// `None` means plain data: a literal, a dataset batch, or anything built
-    /// inside [`no_grad`](crate::autograd::no_grad).
+    /// The graph node that produced this tensor. `None` for plain data, such as
+    /// a literal or anything built inside [`no_grad`](crate::autograd::no_grad).
     pub fn grad_fn(&self) -> Option<&Node> {
         self.node.as_ref()
     }
@@ -195,11 +174,9 @@ impl Tensor {
         autograd::backward(self);
     }
 
-    /// Attach `rule` as this tensor's backward, if any input is differentiable
-    /// and tracking is on.
-    ///
-    /// `rule` is a closure so that saving forward values costs nothing during
-    /// inference. Its gradients must come back in the same order as `inputs`.
+    /// Attach `rule` as the backward if tracking is on and any input needs it.
+    /// It is a closure so inference never pays for saved values. Gradients must
+    /// come back in the order of `inputs`.
     pub(crate) fn with_grad<R>(mut self, inputs: &[&Tensor], rule: impl FnOnce() -> R) -> Tensor
     where
         R: Backward + 'static,
@@ -212,7 +189,7 @@ impl Tensor {
     }
 }
 
-/// Moving between devices is a copy in both directions; the gradient just travels back.
+/// The gradient of a device copy is a copy back.
 struct ToDevice {
     from: Device,
 }

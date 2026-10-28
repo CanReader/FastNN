@@ -1,13 +1,10 @@
-//! Error type for the fallible boundaries of the library.
+//! The error type for I/O, downloads, checkpoints, and CUDA.
 //!
-//! Tensor math does *not* return `Result`. A shape or device mismatch is a bug in
-//! the calling code, like indexing past the end of a slice, so it panics with a
-//! message naming both shapes. `Result` is reserved for things that can fail at
-//! runtime through no fault of the code: I/O, downloads, and CUDA.
+//! Shape and device mistakes in tensor maths panic instead.
 
 use std::fmt;
 
-/// Everything that can go wrong at a fallible boundary.
+/// Everything that can fail at runtime.
 #[derive(Debug)]
 pub enum Error {
     /// A CUDA driver, runtime, or kernel call failed.
@@ -22,12 +19,11 @@ pub enum Error {
     Dataset(String),
     /// Shapes or devices did not line up.
     ///
-    /// Only the [`try_*`](crate::tensor::Tensor::try_matmul) ops produce this.
-    /// The ordinary ops panic instead — see the module docs.
+    /// Only the [`try_*`](crate::tensor::Tensor::try_matmul) ops return this.
     Shape(String),
 }
 
-/// Shorthand for results carrying a fastnn [`Error`].
+/// Result alias for fastnn's [`Error`].
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl fmt::Display for Error {

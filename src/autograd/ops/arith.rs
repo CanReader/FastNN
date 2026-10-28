@@ -73,7 +73,7 @@ impl Backward for DivBackward {
     }
 }
 
-/// `d(a · k) = g·k`. With `factor = 1` this is also the rule for `+ k`.
+/// `d(a · k) = g·k`. Also used for `+ k` with `factor = 1`.
 pub struct MulScalarBackward {
     pub factor: f32,
 }

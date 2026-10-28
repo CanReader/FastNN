@@ -1,28 +1,24 @@
-//! A character-level language model: a small GPT trained from scratch.
+//! Character-level GPT trained from scratch.
 //!
-//!     cargo run --example char_lm --release
-//!     cargo run --example char_lm --release -- corpus.txt
+//!     cargo run --example char_lm --release [-- corpus.txt]
 //!
-//! With no argument it trains on a short embedded excerpt, which is enough to
-//! see the loss fall and the samples turn into English-shaped nonsense. For text
-//! worth reading, point it at a real corpus:
-//!
-//!     curl -o shakespeare.txt \
-//!       https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
-//!
-//! It checkpoints as it goes and resumes from `char_lm.fdl` if one is there, so
-//! stopping it with Ctrl-C costs at most a few hundred steps.
+//! Defaults to a small embedded excerpt. Checkpoints to `char_lm.fdl` and
+//! resumes from it on the next run.
 
 use fastnn::nn::module::scoped;
 use fastnn::prelude::*;
 
-/// Where an interrupted run is saved so it can be picked up again.
 const CHECKPOINT: &str = "char_lm.fdl";
+const SEED: u64 = 1337;
+const DROPOUT: f32 = 0.1;
+const CLIP_NORM: f32 = 1.0;
+const SAMPLE_CHARS: usize = 400;
+const TEMPERATURE: f32 = 0.8;
 
 const CORPUS: &str = include_str!("data/tiny_corpus.txt");
 
 fn main() -> fastnn::Result<()> {
-    manual_seed(1337);
+    manual_seed(SEED);
 
     let text = match std::env::args().nth(1) {
         Some(path) => std::fs::read_to_string(&path)?,
@@ -45,15 +41,12 @@ fn main() -> fastnn::Result<()> {
 
     let mut opt = AdamW::new(model.parameters(), config.lr).betas(0.9, 0.95);
 
-    // Resume if a previous run left a checkpoint, otherwise start from scratch.
-    // Weights alone would not be enough: AdamW's moments and step count decide
-    // how large the next update is.
+    // Resuming needs the optimizer state too, not just the weights.
     let first_step = load_training(&model, &mut opt, CHECKPOINT).unwrap_or(0) as usize;
     if first_step > 0 {
         println!("resuming from step {first_step}\n");
     }
-    // Warmup first: Adam's variance estimate is unreliable for the first few
-    // hundred steps, and a full-size update built on it can wreck the model.
+    // Adam's variance estimate is noisy early on, so ramp the lr up.
     let schedule = Warmup::new(CosineAnnealing::new(config.lr, config.steps), config.warmup);
     let params = model.parameters();
 
@@ -66,9 +59,7 @@ fn main() -> fastnn::Result<()> {
 
         opt.zero_grad();
         loss.backward();
-        // Attention gradients spike occasionally; clipping keeps one bad batch
-        // from undoing many good ones.
-        clip_grad_norm(&params, 1.0);
+        clip_grad_norm(&params, CLIP_NORM);
         opt.step();
 
         if (step + 1) % config.report_every == 0 {
@@ -86,15 +77,14 @@ fn main() -> fastnn::Result<()> {
     }
 
     model.eval();
-    println!("\n─── sample ───");
-    println!("{}", generate(&model, &vocab, &config, 400, 0.8));
+    println!("\nsample:");
+    println!(
+        "{}",
+        generate(&model, &vocab, &config, SAMPLE_CHARS, TEMPERATURE)
+    );
     Ok(())
 }
 
-// ── Model ────────────────────────────────────────────────────────────────────
-
-/// Token embeddings plus learned positions, a causal transformer stack, and a
-/// linear head back to vocabulary logits.
 struct CharGPT {
     tokens: Embedding,
     positions: Embedding,
@@ -113,17 +103,14 @@ impl CharGPT {
                 config.heads,
                 4 * config.width,
                 config.layers,
-                0.1,
+                DROPOUT,
             ),
             head: Linear::no_bias(config.width, vocab),
             context: config.context,
         }
     }
 
-    /// `[batch][context]` token ids → `[batch·context, vocab]` logits.
-    ///
-    /// Flattened because that is the shape [`cross_entropy`] takes: every
-    /// position in every sequence is one independent next-token prediction.
+    /// Returns `[batch * length, vocab]` logits, flattened for `cross_entropy`.
     fn forward_ids(&self, ids: &[Vec<usize>]) -> Tensor {
         let (batch, length) = (ids.len(), ids[0].len());
         assert!(
@@ -173,9 +160,6 @@ impl Module for CharGPT {
     }
 }
 
-// ── Data ─────────────────────────────────────────────────────────────────────
-
-/// A character alphabet built from the corpus itself.
 struct Vocab {
     to_id: std::collections::HashMap<char, usize>,
     to_char: Vec<char>,
@@ -183,12 +167,11 @@ struct Vocab {
 
 impl Vocab {
     fn new(text: &str) -> Vocab {
-        let mut to_char: Vec<char> = text
+        let to_char: Vec<char> = text
             .chars()
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .collect();
-        to_char.shrink_to_fit();
         Vocab {
             to_id: to_char.iter().enumerate().map(|(i, &c)| (c, i)).collect(),
             to_char,
@@ -210,8 +193,7 @@ impl Vocab {
     }
 }
 
-/// A batch of random windows: each input is `context` characters and each target
-/// is the same window shifted one step, so position `i` predicts character `i+1`.
+/// Random windows; targets are the inputs shifted by one character.
 fn sample_batch(data: &[usize], config: &Config) -> (Vec<Vec<usize>>, Vec<usize>) {
     let mut inputs = Vec::with_capacity(config.batch);
     let mut targets = Vec::with_capacity(config.batch * config.context);
@@ -225,9 +207,6 @@ fn sample_batch(data: &[usize], config: &Config) -> (Vec<Vec<usize>>, Vec<usize>
     (inputs, targets)
 }
 
-// ── Generation ───────────────────────────────────────────────────────────────
-
-/// Sample `count` characters, feeding each one back in as context.
 fn generate(
     model: &CharGPT,
     vocab: &Vocab,
@@ -242,7 +221,6 @@ fn generate(
         let context = vec![ids[window..].to_vec()];
 
         let logits = no_grad(|| model.forward_ids(&context));
-        // Only the final position predicts the next character.
         let last = logits.narrow(0, logits.dim(0) - 1, 1);
         ids.push(sample(&last.div_scalar(temperature).softmax().to_vec()));
     }
@@ -250,7 +228,6 @@ fn generate(
     vocab.decode(&ids)
 }
 
-/// Draw one index from a probability vector by inverse-CDF.
 fn sample(probabilities: &[f32]) -> usize {
     let mut draw = fastnn::rng::uniform(1, 0.0, 1.0)[0];
     for (index, &p) in probabilities.iter().enumerate() {
@@ -262,9 +239,6 @@ fn sample(probabilities: &[f32]) -> usize {
     probabilities.len() - 1
 }
 
-// ── Configuration ────────────────────────────────────────────────────────────
-
-/// Model and schedule sizes, picked from how much text there is to learn from.
 #[derive(Debug)]
 struct Config {
     context: usize,
@@ -281,8 +255,7 @@ struct Config {
 
 impl Config {
     fn for_corpus(chars: usize) -> Config {
-        // A model much larger than its corpus memorises instead of generalising,
-        // so capacity scales with the amount of text available.
+        // A model much bigger than its corpus just memorises it.
         if chars > 200_000 {
             Config {
                 context: 128,

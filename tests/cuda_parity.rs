@@ -1,17 +1,7 @@
-//! CPU/GPU equivalence.
-//!
-//! Every op with a hand-written CUDA kernel is run twice — once on each device —
-//! and the results compared. `tests/gradcheck.rs` proves the CPU maths is right;
-//! this proves the GPU agrees with it, forward and backward.
-//!
-//!     cargo test --test cuda_parity
-//!
-//! Skips itself with a note when no GPU is present, so a CPU-only machine still
-//! gets a green run.
+//! Each CUDA op run on both devices, forward and backward, and compared.
+//! Skips with a note when there is no GPU.
 
-// Test inputs are always passed as a slice. `&[x.clone()]` for a single input
-// costs one clone of a refcounted handle and keeps every call site reading the
-// same way as the multi-input ones.
+// `&[x.clone()]` is a cheap refcount bump and keeps single and multi input calls uniform.
 #![allow(clippy::cloned_ref_to_slice_refs)]
 
 use std::sync::Mutex;
@@ -19,23 +9,21 @@ use std::sync::Mutex;
 use fastnn::nn::Param;
 use fastnn::prelude::*;
 
-/// Difference a single op may show. The kernels are built with
-/// `--use_fast_math` and reduce in a different order than the host loops, so
-/// exact equality is not on offer; anything past this is a real disagreement.
+/// The kernels use `--use_fast_math` and reduce in a different order than the host.
 const OP_TOLERANCE: f32 = 2e-4;
 
-/// Difference a whole block may show. Dozens of ops compound their rounding, so
-/// end-to-end comparisons get more room than single ops.
+/// A whole block compounds the rounding of dozens of ops.
 const MODEL_TOLERANCE: f32 = 5e-3;
+
+const NORM_EPS: f32 = 1e-5;
+const GAMMA: f32 = 1.1;
+const BETA: f32 = -0.2;
 
 /// Tests share one GPU and one cuBLAS handle, so they run one at a time.
 static GPU: Mutex<()> = Mutex::new(());
 
-/// Take the GPU lock, ignoring poison.
-///
-/// A failing assertion poisons the mutex, and without this every later test
-/// reports that poison instead of its own result — hiding the failure that
-/// actually matters behind a wall of noise.
+/// Ignores poison, otherwise one failed assertion makes every later test report
+/// the poison instead of its own result.
 fn lock_gpu() -> std::sync::MutexGuard<'static, ()> {
     GPU.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
@@ -45,7 +33,7 @@ fn gpu() -> Option<Device> {
     match Device::cuda(0) {
         Ok(device) => Some(device),
         Err(_) => {
-            eprintln!("no CUDA device — skipping parity test");
+            eprintln!("no CUDA device, skipping parity test");
             None
         }
     }
@@ -80,7 +68,6 @@ fn assert_close(name: &str, cpu: &[f32], cuda: &[f32], tolerance: f32) {
     }
 }
 
-/// Run `f` on both devices and compare its output.
 #[track_caller]
 fn check_forward(name: &str, inputs: &[Tensor], f: impl Fn(&[Tensor]) -> Tensor) {
     let Some(device) = gpu() else { return };
@@ -93,7 +80,6 @@ fn check_forward(name: &str, inputs: &[Tensor], f: impl Fn(&[Tensor]) -> Tensor)
     assert_close(name, &on_cpu, &on_gpu, OP_TOLERANCE);
 }
 
-/// Run `f` on both devices and compare every input gradient.
 #[track_caller]
 fn check_backward(name: &str, inputs: &[Tensor], f: impl Fn(&[Tensor]) -> Tensor) {
     let Some(device) = gpu() else { return };
@@ -117,8 +103,6 @@ fn check_backward(name: &str, inputs: &[Tensor], f: impl Fn(&[Tensor]) -> Tensor
     }
 }
 
-// ── Element-wise and activations ─────────────────────────────────────────────
-
 #[test]
 fn elementwise() {
     let a = sample(&[4, 16]);
@@ -133,8 +117,7 @@ fn elementwise() {
 
 #[test]
 fn broadcasting_stays_on_device() {
-    // The GPU path materialises the expansion rather than falling back to the
-    // host; the result must still match the CPU's stride walk.
+    // The GPU materialises the expansion instead of falling back to the host.
     check_forward("broadcast add", &[sample(&[4, 8]), sample(&[1, 8])], |x| {
         x[0].add(&x[1])
     });
@@ -153,7 +136,6 @@ fn activations() {
     }
 }
 
-/// A named activation, as a plain function pointer so the list can be iterated.
 type Activation = fn(&[Tensor]) -> Tensor;
 
 fn activation_cases() -> Vec<(&'static str, Activation)> {
@@ -175,14 +157,11 @@ fn softmax() {
     check_forward("softmax", &[x.clone()], |x| x[0].softmax());
     check_forward("log_softmax", &[x.clone()], |x| x[0].log_softmax());
 
-    // Weighted so the gradient is non-trivial; a plain sum over softmax is
-    // constant and its gradient is zero on both devices whatever the kernel does.
+    // A plain sum over softmax has zero gradient on both devices.
     check_backward("softmax", &[x, weights], |x| {
         x[0].softmax().mul(&x[1]).sum()
     });
 }
-
-// ── Matrix multiplication ────────────────────────────────────────────────────
 
 #[test]
 fn gemm_layouts() {
@@ -216,15 +195,13 @@ fn gemm_batched() {
         &[sample(&[4, 8, 12]), sample(&[4, 6, 12])],
         |x| x[0].matmul_nt(&x[1]),
     );
-    // One side batched, the other shared — how a weight meets a batch of inputs.
+    // A weight meeting a batch of inputs.
     check_forward(
         "shared weight",
         &[sample(&[8, 12]), sample(&[4, 12, 6])],
         |x| x[0].matmul(&x[1]),
     );
 }
-
-// ── Layout ───────────────────────────────────────────────────────────────────
 
 #[test]
 fn layout_ops() {
@@ -239,8 +216,6 @@ fn layout_ops() {
     });
 }
 
-// ── Reductions ───────────────────────────────────────────────────────────────
-
 #[test]
 fn reductions() {
     let x = sample(&[6, 10]);
@@ -254,35 +229,28 @@ fn reductions() {
     });
 }
 
-// ── Fused layers ─────────────────────────────────────────────────────────────
-
 #[test]
 fn layer_norm() {
     let x = sample(&[6, 16]);
-    let gamma = Tensor::full(&[16], 1.1);
-    let beta = Tensor::full(&[16], -0.2);
+    let gamma = Tensor::full(&[16], GAMMA);
+    let beta = Tensor::full(&[16], BETA);
 
     check_forward(
         "layer_norm",
         &[x.clone(), gamma.clone(), beta.clone()],
-        |x| x[0].layer_norm(&x[1], &x[2], 1e-5),
+        |x| x[0].layer_norm(&x[1], &x[2], NORM_EPS),
     );
-    // The GPU kernel produces all three gradients in one pass; the CPU path
-    // computes them separately. They must agree.
-    //
-    // The weights come in as a fourth input rather than being built inside the
-    // closure: a tensor made in there would always be on the host and would not
-    // survive the GPU run.
+    // The weights are an input because a tensor built inside the closure would
+    // stay on the host.
     check_backward("layer_norm", &[x, gamma, beta, sample(&[6, 16])], |x| {
-        x[0].layer_norm(&x[1], &x[2], 1e-5).mul(&x[3]).sum()
+        x[0].layer_norm(&x[1], &x[2], NORM_EPS).mul(&x[3]).sum()
     });
 }
 
 #[test]
 fn row_reductions_handle_awkward_widths() {
-    // The block reductions behind softmax and layer norm halve the thread count
-    // each round, so a width that is not a power of two used to lose its tail.
-    // 5 and 10 both exercise that; 10 is MNIST's class count.
+    // Non-power-of-two widths used to lose the tail of the block reduction.
+    // 10 is MNIST's class count.
     for width in [3usize, 5, 7, 10, 17, 31, 100, 257] {
         let x = sample(&[4, width]);
         check_forward(&format!("softmax width {width}"), &[x.clone()], |x| {
@@ -293,8 +261,12 @@ fn row_reductions_handle_awkward_widths() {
         });
         check_forward(
             &format!("layer_norm width {width}"),
-            &[x, Tensor::full(&[width], 1.1), Tensor::full(&[width], -0.2)],
-            |x| x[0].layer_norm(&x[1], &x[2], 1e-5),
+            &[
+                x,
+                Tensor::full(&[width], GAMMA),
+                Tensor::full(&[width], BETA),
+            ],
+            |x| x[0].layer_norm(&x[1], &x[2], NORM_EPS),
         );
     }
 }
@@ -304,8 +276,7 @@ fn attention_matches_across_sequence_lengths() {
     let Some(device) = gpu() else { return };
     let _guard = lock_gpu();
 
-    // Attention softmaxes over the key axis, so the sequence length *is* the
-    // reduction width — the exact place the power-of-two bug showed up.
+    // Attention softmaxes over the key axis, so length is the reduction width.
     for length in [1usize, 3, 5, 8, 13] {
         manual_seed(5);
         let attention = MultiHeadAttention::new(16, 4, 0.0);
@@ -336,13 +307,11 @@ fn embedding_lookup() {
     check_forward("index_select", &[table.clone()], |x| {
         x[0].index_select(&[0, 3, 3, 9, 1])
     });
-    // Row 3 twice: the GPU scatter-add must accumulate, not overwrite.
+    // Row 3 twice, the scatter-add must accumulate.
     check_backward("index_select", &[table, weights], |x| {
         x[0].index_select(&[0, 3, 3, 9, 1]).mul(&x[1]).sum()
     });
 }
-
-// ── End to end ───────────────────────────────────────────────────────────────
 
 #[test]
 fn a_transformer_block_matches() {
@@ -394,8 +363,7 @@ fn a_model_trains_identically_on_both_devices() {
 
 #[test]
 fn convolution_lowering() {
-    // Stride 2 with padding 1 exercises both the padding zeros and the
-    // windows-overlap accumulation in col2im.
+    // Stride 2 with padding 1 covers the padding zeros and overlap in col2im.
     let x = sample(&[2, 3, 6, 5]);
     let window = Window::square(3, 2, 1);
 

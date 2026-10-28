@@ -1,8 +1,5 @@
-//! Ops that rearrange elements without doing arithmetic.
-//!
-//! Tensors are always contiguous, so `reshape` is free (it shares storage and
-//! only changes the shape vector) while `permute`, `expand`, and `cat` write a
-//! new buffer.
+//! Ops that rearrange elements without arithmetic. `reshape` shares storage,
+//! the rest write a new buffer.
 
 use crate::autograd::ops::view::{
     CatBackward, ExpandBackward, NarrowBackward, PermuteBackward, ReshapeBackward,
@@ -13,9 +10,7 @@ use crate::tensor::storage::Storage;
 use crate::tensor::Tensor;
 
 impl Tensor {
-    /// Reinterpret the elements under a new shape. One dimension may be `-1`.
-    ///
-    /// Free: the result shares storage with the input.
+    /// Same elements under a new shape, sharing storage. One dim may be `-1`.
     pub fn reshape(&self, dims: &[i64]) -> Tensor {
         let new_shape = shape::resolve(dims, self.numel());
         let old_shape = self.shape().to_vec();
@@ -27,9 +22,7 @@ impl Tensor {
         self.reshape(&[-1])
     }
 
-    /// Collapse dimensions `from..` into one, keeping the dimensions before it.
-    ///
-    /// `flatten_from(1)` is the usual conv-to-linear bridge: `[N, C, H, W] → [N, C*H*W]`.
+    /// Collapse dimensions `from..` into one, e.g. `[N, C, H, W]` to `[N, C*H*W]` at 1.
     pub fn flatten_from(&self, from: usize) -> Tensor {
         let mut dims: Vec<i64> = self.shape()[..from].iter().map(|&d| d as i64).collect();
         dims.push(-1);
@@ -188,7 +181,6 @@ impl Tensor {
             }
         }
 
-        // Interleave: for each outer slice, append every part's chunk in order.
         let (outer, _, inner) = shape::split_at_axis(&out_shape, axis);
         let sources: Vec<Vec<f32>> = parts.iter().map(|t| t.to_vec()).collect();
         let mut data = Vec::with_capacity(shape::numel(&out_shape));
@@ -213,8 +205,6 @@ impl Tensor {
     }
 }
 
-// ── Shared machinery, also used by the backward rules ────────────────────────
-
 /// Same shape change as [`Tensor::reshape`], with no graph node.
 pub(crate) fn reshaped(x: &Tensor, shape: Vec<usize>) -> Tensor {
     debug_assert_eq!(shape::numel(&shape), x.numel());
@@ -226,8 +216,7 @@ pub(crate) fn expanded(x: &Tensor, to: &[usize]) -> Tensor {
     if x.shape() == to {
         return x.detach();
     }
-    // Stride 0 on a broadcast dimension makes every output index read slot 0,
-    // which is exactly what the permute kernel needs to double as `expand`.
+    // stride 0 on stretched dims lets the permute gather double as expand
     let in_strides: Vec<usize> = shape::strides_for(x.shape())
         .iter()
         .enumerate()
@@ -246,10 +235,7 @@ pub(crate) fn broadcast_to(x: &Tensor, to: &[usize]) -> Tensor {
     expanded(&reshaped(x, padded), to)
 }
 
-/// Build `out_shape` by reading each output position from `in_strides[order[d]]`.
-///
-/// This one gather covers both `permute` (a real reordering) and `expand`
-/// (identity order, zero strides on broadcast dimensions).
+/// Read each output position through `in_strides[order[d]]`. Serves both permute and expand.
 fn gather(x: &Tensor, out_shape: Vec<usize>, in_strides: &[usize], order: &[usize]) -> Tensor {
     let numel = shape::numel(&out_shape);
     let out_strides = shape::strides_for(&out_shape);

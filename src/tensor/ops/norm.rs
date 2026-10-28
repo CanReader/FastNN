@@ -1,10 +1,5 @@
-//! Fused normalization ops.
-//!
-//! Both of these could be assembled from `mean`, `sub`, `sqrt`, and `div` — and
-//! [`RMSNorm`](crate::nn::RMSNorm) is. They are fused instead because the
-//! statistics are needed again in the backward pass, and recomputing them
-//! through a chain of eight small ops costs more memory and more kernels than
-//! saving two vectors.
+//! Fused layer and batch norm. They could be built from small ops but the
+//! backward needs the statistics again, and saving them is cheaper than the graph.
 
 use crate::autograd::ops::norm::{BatchNorm2dBackward, LayerNormBackward, LayerNormCudaBackward};
 use crate::cuda::kernels;
@@ -71,9 +66,8 @@ impl Tensor {
             })
     }
 
-    /// Normalize `[N, C, H, W]` per channel using this batch's own statistics,
-    /// then scale and shift. Training-mode only — at eval time the layer applies
-    /// its running statistics as a plain affine transform.
+    /// Normalize `[N, C, H, W]` per channel with this batch's statistics. Training
+    /// only, eval uses the layer's running statistics instead.
     pub fn batch_norm2d(&self, gamma: &Tensor, beta: &Tensor, eps: f32) -> (Tensor, BatchStats) {
         assert_eq!(
             self.ndim(),

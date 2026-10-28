@@ -1,11 +1,4 @@
 //! RMSprop: divide each gradient by a running estimate of its own scale.
-//!
-//! The second-moment average `E[g²]` tracks how large each coordinate's
-//! gradients have recently been, and the update `g / √E[g²]` makes every
-//! coordinate move at roughly the learning rate regardless of that scale.
-//! Adam is this plus first-moment momentum and bias correction; RMSprop's
-//! uncorrected form remains standard in reinforcement learning, where
-//! non-stationary gradients make Adam's long memory a liability.
 
 use crate::error::Result;
 use crate::nn::Param;
@@ -52,7 +45,7 @@ impl RMSprop {
         }
     }
 
-    /// Decay rate of the squared-gradient average. Closer to 1 remembers longer.
+    /// Decay rate of the squared-gradient average.
     pub fn alpha(mut self, alpha: f32) -> RMSprop {
         assert!(
             (0.0..1.0).contains(&alpha),
@@ -67,16 +60,13 @@ impl RMSprop {
         self
     }
 
-    /// Classical momentum applied to the scaled update.
+    /// Momentum applied to the scaled update.
     pub fn momentum(mut self, momentum: f32) -> RMSprop {
         self.momentum = momentum;
         self
     }
 
-    /// Subtract the squared mean from the squared average, so the denominator
-    /// estimates the gradient's *variance* rather than its raw magnitude — a
-    /// consistently large gradient then steps at full size instead of being
-    /// damped by its own mean.
+    /// Normalise by the gradient's variance instead of its raw second moment.
     pub fn centered(mut self) -> RMSprop {
         self.centered = true;
         self
@@ -94,8 +84,7 @@ impl Optimizer for RMSprop {
 
             let square = blend(self.square_avg[index].as_ref(), &grad.square(), self.alpha);
 
-            // E[g²] − E[g]² ≥ 0 mathematically, but floating point can dip a
-            // hair below zero; the eps inside the root keeps sqrt defined.
+            // The variance can dip below zero in floating point, so eps goes inside the root.
             let denominator = if self.centered {
                 let mean = blend(self.grad_avg[index].as_ref(), &grad, self.alpha);
                 let variance = square.sub(&mean.square());
@@ -155,8 +144,6 @@ impl Optimizer for RMSprop {
 mod tests {
     use super::*;
 
-    /// One hand-computed step: g = 3, α = 0.5 ⇒ E[g²] = 4.5,
-    /// update = lr·g/(√4.5 + eps) with eps = 0 for exactness.
     #[test]
     fn first_step_matches_the_formula_exactly() {
         let param = Param::new(Tensor::from_vec(vec![1.0], &[1]));
@@ -173,10 +160,8 @@ mod tests {
         );
     }
 
-    /// Centered RMSprop with a constant gradient: the variance estimate
-    /// `E[g²] − E[g]²` = (1−αᵗ)αᵗ decays toward zero once the mean catches up,
-    /// so late steps dwarf early ones — the signature that separates the
-    /// centered form from the plain one, whose denominator settles at |g|.
+    /// With a constant gradient the variance estimate shrinks, so late steps
+    /// dwarf early ones. The plain form settles at |g| instead.
     #[test]
     fn centered_variant_accelerates_on_constant_gradients() {
         let param = Param::new(Tensor::from_vec(vec![0.0], &[1]));

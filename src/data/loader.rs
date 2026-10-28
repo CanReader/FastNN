@@ -12,7 +12,7 @@ pub struct Batch {
 }
 
 impl Batch {
-    /// How many items are in this batch.
+    /// Items in this batch.
     pub fn len(&self) -> usize {
         self.inputs.dim(0)
     }
@@ -21,7 +21,7 @@ impl Batch {
         self.len() == 0
     }
 
-    /// Targets read as class indices — the form [`cross_entropy`](crate::nn::cross_entropy) takes.
+    /// Targets as class indices, for [`cross_entropy`](crate::nn::cross_entropy).
     pub fn labels(&self) -> Vec<usize> {
         self.targets.to_vec().iter().map(|&v| v as usize).collect()
     }
@@ -42,8 +42,7 @@ impl Batch {
 /// }
 /// ```
 ///
-/// A fresh shuffle happens each time [`iter`](DataLoader::iter) is called, so
-/// every epoch sees a different order.
+/// Each call to [`iter`](DataLoader::iter) reshuffles.
 pub struct DataLoader<'a> {
     dataset: &'a dyn Dataset,
     batch_size: usize,
@@ -64,13 +63,13 @@ impl<'a> DataLoader<'a> {
         }
     }
 
-    /// Reorder items each epoch. On for training, off for evaluation.
+    /// Reorder items each epoch.
     pub fn shuffle(mut self, shuffle: bool) -> DataLoader<'a> {
         self.shuffle = shuffle;
         self
     }
 
-    /// Skip the final short batch. Useful when a layer needs a fixed batch size.
+    /// Skip the final short batch.
     pub fn drop_last(mut self, drop_last: bool) -> DataLoader<'a> {
         self.drop_last = drop_last;
         self
@@ -82,7 +81,7 @@ impl<'a> DataLoader<'a> {
         self
     }
 
-    /// Number of batches one pass will yield.
+    /// Batches in one pass.
     pub fn batches(&self) -> usize {
         let n = self.dataset.len();
         if self.drop_last {
@@ -118,7 +117,7 @@ impl<'a> IntoIterator for &DataLoader<'a> {
     }
 }
 
-/// One pass over a shuffled index order.
+/// One pass over the data.
 pub struct Batches<'a> {
     dataset: &'a dyn Dataset,
     order: Vec<usize>,
@@ -169,8 +168,7 @@ impl Iterator for Batches<'_> {
     }
 }
 
-/// Prepend the batch dimension. A `[1]` item shape collapses to `[batch]`, which
-/// is what a vector of class labels should look like.
+/// Prepend the batch dimension. A `[1]` item shape becomes `[batch]`, like a label vector.
 fn batched(data: Vec<f32>, size: usize, item_shape: &[usize]) -> Tensor {
     if item_shape == [1] {
         return Tensor::from_vec(data, &[size]);

@@ -1,6 +1,6 @@
 //! # FastNN
 //!
-//! A deep learning library in Rust, with CUDA kernels for the parts that matter.
+//! A deep learning library in Rust with optional CUDA kernels.
 //!
 //! ```no_run
 //! use fastnn::prelude::*;
@@ -31,42 +31,14 @@
 //! # }
 //! ```
 //!
-//! ## How it fits together
+//! Modules: [`tensor`], [`autograd`], [`nn`], [`optim`], [`data`], [`serialize`], [`cuda`].
 //!
-//! ```text
-//!   data     Dataset ─► DataLoader ─► Batch
-//!                                       │
-//!   nn       Module ──► forward ────────┤   layers hold Param handles
-//!                                       ▼
-//!   tensor   Tensor ops on CPU or CUDA ─┴─► loss
-//!                                       │
-//!   autograd loss.backward() walks the graph the ops built,
-//!            depositing gradients in each Param's slot
-//!                                       │
-//!   optim    opt.step() reads those slots and updates in place
-//! ```
+//! Tensor maths panics on shape and device mistakes. [`Result`] is for I/O,
+//! dataset downloads, and CUDA.
 //!
-//! Each layer is one module directory and is documented where it lives:
-//!
-//! - [`tensor`] — the array type, its ops, and CPU/CUDA dispatch
-//! - [`autograd`] — the graph the ops build and the reverse pass over it
-//! - [`nn`] — layers, [`Param`](nn::Param) handles, and losses
-//! - [`optim`] — optimizers and learning-rate schedules
-//! - [`data`] — datasets, batching, MNIST
-//! - [`serialize`] — checkpoints
-//! - [`cuda`] — GPU memory and the kernel bindings
-//!
-//! ## Errors
-//!
-//! Tensor maths panics on shape and device mistakes — those are bugs in the
-//! calling code, like indexing past the end of a slice. [`Result`] is for things
-//! that genuinely fail at runtime: I/O, dataset downloads, and CUDA.
-//!
-//! ## Devices
-//!
-//! Everything starts on the CPU. [`Module::to_device`](nn::Module::to_device)
-//! moves a model, [`DataLoader::to_device`](data::DataLoader::to_device) moves
-//! its batches, and mixing the two panics rather than copying silently.
+//! Everything starts on the CPU. Move the model with
+//! [`Module::to_device`](nn::Module::to_device) and the batches with
+//! [`DataLoader::to_device`](data::DataLoader::to_device).
 //!
 //! ```no_run
 //! # use fastnn::prelude::*;
@@ -89,7 +61,7 @@ pub mod tensor;
 
 pub use error::{Error, Result};
 
-/// Everything you need for a training script.
+/// The usual imports for a training script.
 ///
 /// ```
 /// use fastnn::prelude::*;

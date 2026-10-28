@@ -1,4 +1,4 @@
-//! The safetensors reader and writer, end to end.
+//! Safetensors round trips, renaming, half precision and corrupt files.
 
 use std::collections::HashMap;
 
@@ -47,7 +47,7 @@ fn partial_load_reports_instead_of_guessing() {
     let path = temp("fastnn_st_partial.safetensors");
     save_safetensors(&small, &path).unwrap();
 
-    // A model with an extra layer: the first layer matches, the second cannot.
+    // The extra layer has nothing to load.
     let bigger = Sequential::new()
         .add(Linear::new(4, 4))
         .add(Linear::new(4, 3));
@@ -66,7 +66,7 @@ fn renaming_maps_foreign_keys_onto_the_model() {
     let path = temp("fastnn_st_rename.safetensors");
     save_safetensors(&source, &path).unwrap();
 
-    // A container gives the same layer different names; the map bridges them.
+    // The container names the layer differently.
     let target = Sequential::new().add(Linear::new(3, 2));
     let rename: HashMap<String, String> = [
         ("weight".to_string(), "0.weight".to_string()),
@@ -105,8 +105,7 @@ fn shape_clash_is_an_error_that_names_the_tensor() {
     );
 }
 
-/// A file written by hand in the two half-precision dtypes: loading must widen
-/// each stored value to exactly the f32 the conversion tables promise.
+/// A hand-written file in both half dtypes, every value must widen exactly.
 #[test]
 fn half_precision_tensors_widen_exactly() {
     let f16_values = [1.0f32, -2.5, 0.15625];
@@ -163,7 +162,7 @@ fn corrupt_headers_fail_loudly_not_quietly() {
             let header = "{\"w\":{\"dtype\":\"F32\",\"shape\":[4],\"data_offsets\":[0,16]}}";
             let mut f = (header.len() as u64).to_le_bytes().to_vec();
             f.extend_from_slice(header.as_bytes());
-            f.extend_from_slice(&[0u8; 4]); // only 4 of the claimed 16 bytes
+            f.extend_from_slice(&[0u8; 4]); // header claims 16
             f
         }),
         ("shape and span disagree", {

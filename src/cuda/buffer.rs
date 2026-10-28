@@ -11,27 +11,21 @@ const F32: usize = std::mem::size_of::<f32>();
 
 /// An owned block of `len` floats in GPU memory.
 ///
-/// Dropping it returns the block to the size-keyed free list rather than calling
-/// `cudaFree`, so the many short-lived temporaries a training step creates cost
-/// a hash lookup instead of a ~3 ms driver round trip.
+/// Dropping returns the block to a free list instead of calling `cudaFree`, which is slow.
 pub struct CudaBuffer {
     ptr: *mut f32,
     len: usize,
 }
 
-// GPU pointers are not tied to the thread that allocated them, and the CUDA
-// runtime serialises memory calls internally.
+// Device pointers are not tied to a thread, and the runtime serialises memory calls.
 unsafe impl Send for CudaBuffer {}
 unsafe impl Sync for CudaBuffer {}
 
 impl CudaBuffer {
-    /// Allocate `len` floats, reusing a cached block when one is free.
+    /// Allocates `len` floats, reusing a cached block when one is free.
     ///
-    /// On failure the free list is drained and the allocation retried once. The
-    /// cache holds blocks of every size that has ever been asked for, so a run
-    /// that changes shape — a final short batch, a longer sequence — can be
-    /// holding plenty of memory in the wrong size classes. Returning them to the
-    /// driver turns many would-be out-of-memory failures into a pause.
+    /// On failure the cache is drained and the allocation retried once, since a changed shape
+    /// (a short last batch, a longer sequence) can leave memory parked in the wrong sizes.
     pub fn new(len: usize) -> Result<Self> {
         if let Some(ptr) = cache::take(len) {
             return Ok(CudaBuffer { ptr, len });
@@ -45,7 +39,7 @@ impl CudaBuffer {
         }
     }
 
-    /// Allocate `len` floats set to zero.
+    /// Allocates `len` zeroed floats.
     pub fn zeros(len: usize) -> Result<Self> {
         let buf = Self::new(len)?;
         check(
@@ -55,14 +49,14 @@ impl CudaBuffer {
         Ok(buf)
     }
 
-    /// Allocate and upload `data`.
+    /// Allocates a buffer holding `data`.
     pub fn from_slice(data: &[f32]) -> Result<Self> {
         let buf = Self::new(data.len())?;
         buf.upload(data)?;
         Ok(buf)
     }
 
-    /// Copy host memory into this buffer. `data` must not be longer than the buffer.
+    /// Copies host memory in. `data` must fit.
     pub fn upload(&self, data: &[f32]) -> Result<()> {
         assert!(
             data.len() <= self.len,
@@ -76,7 +70,7 @@ impl CudaBuffer {
         )
     }
 
-    /// Download the whole buffer to the host.
+    /// Copies the whole buffer to the host.
     pub fn to_vec(&self) -> Result<Vec<f32>> {
         let mut out = vec![0.0f32; self.len];
         check(
@@ -86,7 +80,7 @@ impl CudaBuffer {
         Ok(out)
     }
 
-    /// Copy `src` into this buffer on-device.
+    /// Copies `src` into this buffer on the device.
     pub fn copy_from(&self, src: &CudaBuffer) -> Result<()> {
         assert!(
             src.len <= self.len,
@@ -164,15 +158,12 @@ fn raw_alloc(len: usize) -> Result<*mut f32> {
     Ok(ptr)
 }
 
-/// Free list of GPU blocks, keyed by element count.
-///
-/// Every kernel runs on the default stream, which is ordered: a kernel launched
-/// after another on the same stream sees its writes. So a block freed by one op
-/// is safe to hand to the next.
+/// Free list of blocks keyed by element count. Safe to reuse right away because every kernel
+/// runs on the ordered default stream.
 mod cache {
     use super::{ffi, HashMap, Mutex};
 
-    /// Spare blocks kept per size before we hand memory back to the driver.
+    /// Spare blocks kept per size before memory goes back to the driver.
     const MAX_PER_SIZE: usize = 32;
 
     struct Block(*mut f32);
@@ -203,7 +194,6 @@ mod cache {
         }
     }
 
-    /// Hand every cached block back to the driver.
     pub(super) fn drain() {
         let Ok(mut guard) = FREE_LIST.lock() else {
             return;
@@ -218,10 +208,7 @@ mod cache {
     }
 }
 
-/// Release every cached GPU block back to the driver.
-///
-/// Only useful when another library needs the memory — allocation reuses cached
-/// blocks automatically.
+/// Frees every cached block. Only needed when another library wants the memory.
 pub fn empty_cache() {
     cache::drain();
 }

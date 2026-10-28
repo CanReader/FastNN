@@ -1,9 +1,6 @@
-//! Matrix multiplication, plain and transpose-fused.
-//!
-//! `matmul_nt` and `matmul_tn` read an operand transposed instead of building a
-//! transposed copy first. That matters because the backward pass of every linear
-//! layer needs exactly those two forms, and on the GPU they map onto a cuBLAS
-//! transpose flag — no staging buffer, no extra kernel.
+//! Matrix multiplication, plain and transpose-fused. `matmul_nt` and `matmul_tn`
+//! read an operand transposed in place, which is what a linear layer's backward
+//! needs and maps onto a cuBLAS flag.
 
 use rayon::prelude::*;
 
@@ -12,7 +9,9 @@ use crate::cuda::kernels;
 use crate::tensor::storage::Storage;
 use crate::tensor::Tensor;
 
-/// Which operands are read transposed.
+/// Below this many multiply-adds the thread pool is not worth waking.
+const SERIAL_FLOPS: usize = 16_384;
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Layout {
     /// `C = A · B`, with `A` as `[m, k]` and `B` as `[k, n]`.
@@ -24,9 +23,8 @@ pub(crate) enum Layout {
 }
 
 impl Tensor {
-    /// `self · other`. Both must be at least 2-D; leading dimensions batch.
-    ///
-    /// A batch dimension of 1 on either side broadcasts against the other.
+    /// `self · other`. Both must be 2-D or more, leading dims are batch dims
+    /// and a batch of 1 broadcasts.
     pub fn matmul(&self, other: &Tensor) -> Tensor {
         let out = multiply(self, other, Layout::Plain);
         out.with_grad(&[self, other], || MatmulBackward {
@@ -54,7 +52,6 @@ impl Tensor {
     }
 }
 
-/// The `(m, n, k, batch)` of one multiplication, plus each side's batch count.
 struct Dims {
     m: usize,
     n: usize,
@@ -64,7 +61,7 @@ struct Dims {
     b_batch: usize,
 }
 
-/// Shared forward for all three layouts, with no graph node attached.
+/// Forward for all three layouts, no graph node.
 pub(crate) fn multiply(a: &Tensor, b: &Tensor, layout: Layout) -> Tensor {
     assert_eq!(
         a.device(),
@@ -81,9 +78,8 @@ pub(crate) fn multiply(a: &Tensor, b: &Tensor, layout: Layout) -> Tensor {
     );
 
     let dims = resolve_dims(a, b, layout);
-    // The output's batch prefix comes from whichever side actually has one:
-    // more batch items wins, and at equal counts the higher rank wins, so
-    // [m,k] × [1,k,n] stays 3-D instead of collapsing to a plain matrix.
+    // Batch prefix comes from the side with more batches, then the higher rank,
+    // so [m,k] x [1,k,n] stays 3-D.
     let mut out_shape: Vec<usize> = a.shape()[..a.ndim() - 2].to_vec();
     if dims.b_batch > dims.a_batch || (dims.b_batch == dims.a_batch && b.ndim() > a.ndim()) {
         out_shape = b.shape()[..b.ndim() - 2].to_vec();
@@ -96,8 +92,7 @@ pub(crate) fn multiply(a: &Tensor, b: &Tensor, layout: Layout) -> Tensor {
             let out = cuda_gemm(x, y, &dims, layout);
             Tensor::raw(Storage::Cuda(out), out_shape, a.device())
         }
-        // cuBLAS strided-batched needs matching batch counts; broadcast one side
-        // by materialising it rather than adding a second GPU path.
+        // strided-batched cuBLAS needs equal batch counts
         (Storage::Cuda(_), Storage::Cuda(_)) => {
             let (x, y) = match_batches(a, b, &dims);
             multiply(&x, &y, layout)
@@ -114,7 +109,6 @@ fn resolve_dims(a: &Tensor, b: &Tensor, layout: Layout) -> Dims {
     let (ar, ac) = (a.dim(a.ndim() - 2), a.dim(a.ndim() - 1));
     let (br, bc) = (b.dim(b.ndim() - 2), b.dim(b.ndim() - 1));
 
-    // Read each side's (rows, inner) according to which operand is transposed.
     let (m, k) = match layout {
         Layout::LhsT => (ac, ar),
         _ => (ar, ac),
@@ -148,7 +142,7 @@ fn resolve_dims(a: &Tensor, b: &Tensor, layout: Layout) -> Dims {
     }
 }
 
-/// Tile whichever side has a single batch up to the other's batch count.
+/// Tile the single-batch side up to the other's batch count.
 fn match_batches(a: &Tensor, b: &Tensor, dims: &Dims) -> (Tensor, Tensor) {
     let tile = |t: &Tensor| {
         let mut shape = vec![dims.batch];
@@ -186,16 +180,8 @@ fn cuda_gemm(
     result.expect("cuda gemm")
 }
 
-/// Row-parallel GEMM.
-///
-/// Parallelism is per *output row*, not per batch: a transformer step's largest
-/// multiplies — the feed-forward and head projections — have batch 1, and
-/// batch-level chunks would leave every core but one idle on exactly the work
-/// that dominates.
-///
-/// Each layout gets the loop order that streams its operands contiguously:
-/// `Plain` and `LhsT` accumulate whole rows of `b` at a time, and `RhsT` — the
-/// `q·kᵀ` of every attention score — is a dot product of two contiguous rows.
+/// Parallel over output rows rather than batches, since the big transformer
+/// matmuls have batch 1. Loop order keeps each layout reading contiguously.
 fn cpu_gemm(a: &[f32], b: &[f32], dims: &Dims, layout: Layout) -> Vec<f32> {
     let Dims {
         m,
@@ -239,8 +225,7 @@ fn cpu_gemm(a: &[f32], b: &[f32], dims: &Dims, layout: Layout) -> Vec<f32> {
     };
 
     let mut out = vec![0.0f32; batch * m * n];
-    // Tiny multiplies are not worth a trip through the thread pool.
-    if batch * m * n * k < 16_384 {
+    if batch * m * n * k < SERIAL_FLOPS {
         out.chunks_mut(n)
             .enumerate()
             .for_each(|(r, row)| fill_row(r, row));

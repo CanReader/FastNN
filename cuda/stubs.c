@@ -1,8 +1,4 @@
-/* CPU-only build stubs for CUDA kernel symbols.
- * Compiled when the `cuda` feature is disabled. These functions are never
- * called at runtime (all tensor storage is CPU in that configuration), but
- * the Rust FFI declarations require symbols to be present at link time.
- */
+/* Link-time stand-ins for the kernel symbols when the `cuda` feature is off. Never called. */
 #include <stddef.h>
 
 #define STUB return -1

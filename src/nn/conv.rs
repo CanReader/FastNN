@@ -2,15 +2,11 @@
 
 use crate::tensor::{Tensor, Window};
 
+use super::linear::uniform_bias;
 use super::module::Module;
 use super::param::Param;
 
-/// Convolution over `[N, C, H, W]`, implemented as unfold-then-multiply.
-///
-/// [`im2col`](Tensor::im2col) lays every sliding window out as a column, which
-/// turns the convolution into one matrix multiply against a `[out_channels,
-/// C·kh·kw]` weight. That is why this layer needs no gradient code of its own:
-/// the derivatives of `im2col` and `matmul` already compose into the right thing.
+/// Convolution over `[N, C, H, W]` as [`im2col`](Tensor::im2col) then one matmul.
 pub struct Conv2d {
     pub weight: Param,
     pub bias: Option<Param>,
@@ -57,10 +53,6 @@ impl Conv2d {
     }
 
     /// Split the channels into `groups` independent convolutions.
-    ///
-    /// Each group sees only `in/groups` input channels and produces
-    /// `out/groups` outputs, cutting parameters and compute by the group
-    /// count. The weight is `[out, in/groups, kh, kw]`.
     pub fn grouped(
         in_channels: usize,
         out_channels: usize,
@@ -78,9 +70,7 @@ impl Conv2d {
         )
     }
 
-    /// One filter per channel — `groups == channels`, the spatial half of a
-    /// depthwise-separable convolution. Follow with a 1×1 [`Conv2d`] to mix
-    /// channels back together.
+    /// One filter per channel (`groups == channels`).
     pub fn depthwise(channels: usize, kernel: usize, stride: usize, padding: usize) -> Conv2d {
         Conv2d::grouped(channels, channels, kernel, stride, padding, channels)
     }
@@ -111,10 +101,7 @@ impl Conv2d {
                 &[out_channels, in_channels / groups, kh, kw],
                 fan_in,
             )),
-            bias: bias.then(|| {
-                let bound = 1.0 / (fan_in as f32).sqrt();
-                Param::new(Tensor::uniform(&[out_channels], -bound, bound))
-            }),
+            bias: bias.then(|| Param::new(uniform_bias(out_channels, fan_in))),
             window,
             in_channels,
             out_channels,
@@ -148,9 +135,7 @@ impl Module for Conv2d {
         let (out_h, out_w) = self.window.output_size(height, width);
         let out_c = self.out_channels as i64;
 
-        // [N, C·kh·kw, out_h·out_w] against [out_channels, C·kh·kw]; with
-        // groups, the same product runs once per channel slice and the results
-        // stack back along the channel axis.
+        // with groups the same product runs per channel slice and the results are stacked
         let mut out = if self.groups == 1 {
             let columns = input.im2col(self.window);
             self.weight.tensor().reshape(&[out_c, -1]).matmul(&columns)

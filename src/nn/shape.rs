@@ -4,21 +4,18 @@ use crate::tensor::Tensor;
 
 use super::module::Module;
 
-/// Collapse everything after the batch dimension into one.
-///
-/// The bridge from a convolution stack to a classifier head:
-/// `[N, C, H, W] → [N, C·H·W]`.
+/// Flatten everything after the batch dimension, `[N, C, H, W]` to `[N, C·H·W]`.
 pub struct Flatten {
     from: usize,
 }
 
 impl Flatten {
-    /// Keep dimension 0 as the batch, flatten the rest.
+    /// Flatten from dimension 1.
     pub fn new() -> Flatten {
         Flatten { from: 1 }
     }
 
-    /// Keep dimensions before `from`, flatten from there on.
+    /// Flatten from dimension `from`.
     pub fn from(from: usize) -> Flatten {
         Flatten { from }
     }
@@ -36,8 +33,7 @@ impl Module for Flatten {
     }
 }
 
-/// Reshape to a fixed shape. `-1` infers one dimension, which is how you keep a
-/// variable batch size.
+/// Reshape to a fixed shape. `-1` infers one dimension.
 pub struct Reshape {
     dims: Vec<i64>,
 }

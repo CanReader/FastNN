@@ -1,16 +1,12 @@
-//! Loss functions.
-//!
-//! Free functions, not layers — a loss has no parameters and no state, so
-//! `cross_entropy(&logits, &targets)` says everything a struct would.
+//! Loss functions, as free functions since they hold no state.
 
 use crate::autograd::ops::loss::{CrossEntropyBackward, WeightedCrossEntropyBackward};
 use crate::tensor::Tensor;
 
-/// Mean cross-entropy between `logits` `[batch, classes]` and integer class targets.
-///
-/// Takes raw logits, not probabilities: softmax and the log are fused here, so
-/// the numerically dangerous `log(exp(...))` never appears and a confidently
-/// wrong prediction yields a large finite loss instead of infinity.
+/// Keeps probabilities off 0 and 1 so `log` stays finite.
+const CLAMP_EPS: f32 = 1e-7;
+
+/// Mean cross-entropy of raw `logits` `[batch, classes]` against integer class targets.
 pub fn cross_entropy(logits: &Tensor, targets: &[usize]) -> Tensor {
     assert_eq!(
         logits.ndim(),
@@ -38,7 +34,7 @@ pub fn cross_entropy(logits: &Tensor, targets: &[usize]) -> Tensor {
         let base = row * classes;
         let values = &data[base..base + classes];
 
-        // Shift by the row maximum so exp() cannot overflow.
+        // shift by the row max so exp can't overflow
         let shift = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         let sum: f32 = values.iter().map(|&v| (v - shift).exp()).sum();
         for c in 0..classes {
@@ -63,19 +59,14 @@ pub fn mse(prediction: &Tensor, target: &Tensor) -> Tensor {
     prediction.sub(target).square().mean()
 }
 
-/// Mean absolute error. Less sensitive to outliers than [`mse`].
+/// Mean absolute error.
 pub fn mae(prediction: &Tensor, target: &Tensor) -> Tensor {
     prediction.sub(target).abs().mean()
 }
 
-/// Binary cross-entropy over probabilities already in `[0, 1]`.
-///
-/// Predictions are clamped away from the endpoints, because `log(0)` is `-inf`
-/// and one saturated output would poison the whole batch. Prefer
-/// [`bce_with_logits`] when you have raw scores.
+/// Binary cross-entropy over probabilities. Prefer [`bce_with_logits`] for raw scores.
 pub fn bce(prediction: &Tensor, target: &Tensor) -> Tensor {
-    const EDGE: f32 = 1e-7;
-    let p = prediction.clamp(EDGE, 1.0 - EDGE);
+    let p = prediction.clamp(CLAMP_EPS, 1.0 - CLAMP_EPS);
     let positive = target.mul(&p.log());
     let negative = target
         .neg()
@@ -84,23 +75,14 @@ pub fn bce(prediction: &Tensor, target: &Tensor) -> Tensor {
     positive.add(&negative).neg().mean()
 }
 
-/// Binary cross-entropy straight from logits.
-///
-/// Uses `max(x,0) - x·t + log(1 + e^-|x|)`, which is the same value as
-/// `bce(sigmoid(x), t)` but never exponentiates a large positive number.
+/// Binary cross-entropy from logits, as `max(x,0) - x·t + log(1 + e^-|x|)` to avoid overflow.
 pub fn bce_with_logits(logits: &Tensor, target: &Tensor) -> Tensor {
     let floor = logits.clamp(0.0, f32::INFINITY);
     let stable_log = logits.abs().neg().exp().add_scalar(1.0).log();
     floor.sub(&logits.mul(target)).add(&stable_log).mean()
 }
 
-// ── Regression ───────────────────────────────────────────────────────────────
-
 /// Huber loss: quadratic within `delta` of the target, linear beyond it.
-///
-/// Written branch-free as `½·min(|e|, δ)² + δ·(|e| − min(|e|, δ))`, which
-/// equals `½e²` inside the threshold and `δ(|e| − ½δ)` outside — MSE's smooth
-/// gradient near the answer, MAE's bounded gradient for outliers.
 pub fn huber(prediction: &Tensor, target: &Tensor, delta: f32) -> Tensor {
     assert!(delta > 0.0, "huber delta must be positive, got {delta}");
     let residual = prediction.sub(target).abs();
@@ -110,17 +92,13 @@ pub fn huber(prediction: &Tensor, target: &Tensor, delta: f32) -> Tensor {
     quadratic.add(&linear).mean()
 }
 
-/// Huber with `delta = 1`, under the name detection literature uses.
+/// Huber with `delta = 1`.
 pub fn smooth_l1(prediction: &Tensor, target: &Tensor) -> Tensor {
     huber(prediction, target, 1.0)
 }
 
-/// Negative log-likelihood of a Gaussian with predicted mean and log-variance,
-/// per element: `½(log σ² + (x − μ)²/σ²)`, dropping the `½ln 2π` constant.
-///
-/// Predicting `log σ²` rather than `σ²` keeps the variance positive by
-/// construction and the loss finite everywhere — the standard trick for
-/// heteroscedastic regression.
+/// Gaussian negative log-likelihood from a predicted mean and log-variance,
+/// without the `½ln 2π` constant.
 pub fn gaussian_nll(mean: &Tensor, log_variance: &Tensor, target: &Tensor) -> Tensor {
     let squared_error = target.sub(mean).square();
     let precision = log_variance.neg().exp();
@@ -130,32 +108,21 @@ pub fn gaussian_nll(mean: &Tensor, log_variance: &Tensor, target: &Tensor) -> Te
         .mean()
 }
 
-/// Negative log-likelihood of a Poisson with predicted log-rate, per element:
-/// `e^{log λ} − k·log λ`, dropping the `log k!` term that no gradient reaches.
+/// Poisson negative log-likelihood from a predicted log-rate, without the `log k!` term.
 pub fn poisson_nll(log_rate: &Tensor, target: &Tensor) -> Tensor {
     log_rate.exp().sub(&target.mul(log_rate)).mean()
 }
 
-// ── Distributions ────────────────────────────────────────────────────────────
-
-/// `KL(target ‖ prediction)`: rows of probabilities, summed over the last
-/// axis and averaged over the rest.
-///
-/// Both sides are clamped away from zero so `0·log 0` — which is 0 in the
-/// limit — cannot become `NaN` in f32. The direction matters: this penalises
-/// the prediction for missing mass wherever the *target* has some.
+/// `KL(target ‖ prediction)` over rows of probabilities, summed on the last axis.
+/// Both sides are clamped so `0·log 0` can't become `NaN`.
 pub fn kl_divergence(prediction: &Tensor, target: &Tensor) -> Tensor {
-    const EDGE: f32 = 1e-7;
-    let p = prediction.clamp(EDGE, 1.0);
-    let t = target.clamp(EDGE, 1.0);
+    let p = prediction.clamp(CLAMP_EPS, 1.0);
+    let t = target.clamp(CLAMP_EPS, 1.0);
     let rows = (p.numel() / p.last_dim()) as f32;
     t.mul(&t.log().sub(&p.log())).sum().div_scalar(rows)
 }
 
-/// Negative log-likelihood over rows of *log*-probabilities, the pairing for a
-/// model that ends in `log_softmax`. `nll(log_softmax(x), t)` equals
-/// `cross_entropy(x, t)`; use the fused form unless the log-probabilities are
-/// needed elsewhere too.
+/// Negative log-likelihood over rows of log-probabilities. Equals [`cross_entropy`] after `log_softmax`.
 pub fn nll(log_probs: &Tensor, targets: &[usize]) -> Tensor {
     let (batch, classes) = (log_probs.dim(0), log_probs.dim(1));
     assert_eq!(
@@ -165,8 +132,7 @@ pub fn nll(log_probs: &Tensor, targets: &[usize]) -> Tensor {
         targets.len()
     );
 
-    // Selecting one entry per row is a dot with the one-hot targets — a
-    // constant, so the graph reaches only the log-probabilities.
+    // picking one entry per row as a dot with constant one-hot targets
     let mut one_hot = vec![0.0f32; batch * classes];
     for (row, &target) in targets.iter().enumerate() {
         assert!(
@@ -183,18 +149,10 @@ pub fn nll(log_probs: &Tensor, targets: &[usize]) -> Tensor {
         .neg()
 }
 
-// ── Classification under imbalance ───────────────────────────────────────────
-
-/// Binary focal loss from logits (Lin et al., 2017).
-///
-/// Scales each example's BCE by `(1 − p_correct)^γ`: an example the model
-/// already gets right contributes almost nothing, so the rare hard positives
-/// dominate the gradient instead of drowning under easy negatives. `alpha`
-/// additionally reweights the positive class; `gamma = 2`, `alpha = 0.25` are
-/// the paper's defaults.
+/// Binary focal loss from logits: BCE scaled by `(1 − p_correct)^gamma`, with
+/// `alpha` weighting the positive class. The paper uses `gamma = 2`, `alpha = 0.25`.
 pub fn focal_bce_with_logits(logits: &Tensor, target: &Tensor, gamma: f32, alpha: f32) -> Tensor {
-    const EDGE: f32 = 1e-7;
-    let p = logits.sigmoid().clamp(EDGE, 1.0 - EDGE);
+    let p = logits.sigmoid().clamp(CLAMP_EPS, 1.0 - CLAMP_EPS);
     let one_minus_p = p.neg().add_scalar(1.0);
     let one_minus_t = target.neg().add_scalar(1.0);
 
@@ -210,10 +168,6 @@ pub fn focal_bce_with_logits(logits: &Tensor, target: &Tensor, gamma: f32, alpha
 }
 
 /// Dice loss over probabilities: `1 − 2|P∩T| / (|P| + |T|)`, smoothed.
-///
-/// Measures overlap rather than per-pixel agreement, so a tiny foreground
-/// region weighs as much as a large one — why segmentation reaches for it
-/// when cross-entropy collapses to "predict background everywhere".
 pub fn dice(prediction: &Tensor, target: &Tensor) -> Tensor {
     const SMOOTH: f32 = 1.0;
     let intersection = prediction
@@ -225,20 +179,18 @@ pub fn dice(prediction: &Tensor, target: &Tensor) -> Tensor {
     intersection.div(&total).neg().add_scalar(1.0)
 }
 
-// ── Configurable cross-entropy ───────────────────────────────────────────────
-
 /// How per-sample losses become the reported value.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Reduction {
-    /// Weighted mean — the default, and what a learning rate is tuned against.
+    /// Weighted mean.
     Mean,
     /// Plain sum; scales with batch size.
     Sum,
-    /// No reduction: one loss per row, for masking or reweighting downstream.
+    /// One loss per row.
     None,
 }
 
-/// [`cross_entropy`] with the knobs real datasets need.
+/// [`cross_entropy`] with label smoothing, class weights and an ignored index.
 ///
 /// ```
 /// # use fastnn::prelude::*;
@@ -249,12 +201,8 @@ pub enum Reduction {
 /// let loss = loss_fn.compute(&logits, &[2, 0, 4]);
 /// ```
 ///
-/// With label smoothing `s`, the target distribution becomes
-/// `(1−s)·one_hot + s/K` — the model is asked for confidence `1−s+s/K`, not
-/// certainty, which keeps logits bounded and calibration honest. Class weights
-/// follow the weighted-mean convention: the loss is divided by the sum of the
-/// participating rows' weights, so reweighting does not silently rescale the
-/// learning rate. Ignored rows contribute nothing to loss or gradient.
+/// Under `Mean` the loss is divided by the summed weights of the rows that
+/// count, so weighting doesn't rescale the learning rate.
 pub struct CrossEntropyLoss {
     label_smoothing: f32,
     class_weights: Option<Vec<f32>>,
@@ -272,7 +220,7 @@ impl CrossEntropyLoss {
         }
     }
 
-    /// Blend `s` of the probability mass uniformly across classes.
+    /// Spread `s` of the probability mass uniformly over the classes.
     pub fn label_smoothing(mut self, s: f32) -> CrossEntropyLoss {
         assert!(
             (0.0..1.0).contains(&s),
@@ -282,13 +230,13 @@ impl CrossEntropyLoss {
         self
     }
 
-    /// Per-class weights, e.g. inverse class frequency for imbalanced data.
+    /// Per-class weights.
     pub fn class_weights(mut self, weights: Vec<f32>) -> CrossEntropyLoss {
         self.class_weights = Some(weights);
         self
     }
 
-    /// Rows with this target contribute nothing — padding tokens, typically.
+    /// Rows with this target contribute nothing.
     pub fn ignore_index(mut self, index: usize) -> CrossEntropyLoss {
         self.ignore_index = Some(index);
         self
@@ -299,8 +247,7 @@ impl CrossEntropyLoss {
         self
     }
 
-    /// `[batch, classes]` logits and one target per row → the reduced loss
-    /// (or `[batch]` under [`Reduction::None`]).
+    /// Loss for `[batch, classes]` logits, or `[batch]` under [`Reduction::None`].
     pub fn compute(&self, logits: &Tensor, targets: &[usize]) -> Tensor {
         assert_eq!(
             logits.ndim(),
@@ -342,8 +289,7 @@ impl CrossEntropyLoss {
             weight_total += weight;
 
             let values = &data[row * classes..(row + 1) * classes];
-            // log p_c = v_c − shift − ln Σ e^{v−shift}: the shift makes every
-            // exponent ≤ 0, so nothing overflows however large the logits.
+            // shift by the row max so every exponent is <= 0
             let shift = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             let log_sum = values.iter().map(|&v| (v - shift).exp()).sum::<f32>().ln();
 
@@ -352,7 +298,7 @@ impl CrossEntropyLoss {
                 let log_prob = value - shift - log_sum;
                 let q = if class == target { on_target } else { uniform };
                 loss -= q * log_prob;
-                // d loss / d v_c = p_c − q_c, scaled by this row's weight.
+                // d loss / d logit is p - q, scaled by the row weight
                 difference[row * classes + class] = weight * ((log_prob).exp() - q);
             }
             per_row[row] = weight * loss;
@@ -361,8 +307,7 @@ impl CrossEntropyLoss {
         let difference = Tensor::from_vec(difference, &[batch, classes]);
         let (value, normalizer, per_row_reduction) = match self.reduction {
             Reduction::Mean => {
-                // An all-ignored batch has nothing to average; 0 with a zero
-                // gradient is the only answer that does not poison the run.
+                // all rows ignored: report 0 with zero gradient instead of dividing by 0
                 let denominator = if weight_total > 0.0 {
                     weight_total
                 } else {

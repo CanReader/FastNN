@@ -1,22 +1,5 @@
-//! Tensor operations, grouped by what they do.
-//!
-//! | module | ops |
-//! |---|---|
-//! | [`arith`] | `add` `sub` `mul` `div` and their scalar forms |
-//! | [`unary`] | `neg` `exp` `log` `sqrt` `abs` `powf` `clamp` |
-//! | [`activation`] | `relu` `sigmoid` `tanh` `gelu` `silu` `leaky_relu` `softmax` `log_softmax` |
-//! | [`matmul`] | `matmul` and the transpose-fused `matmul_nt` / `matmul_tn` |
-//! | [`reduce`] | `sum` `mean` `max` `min` `argmax` and their axis forms |
-//! | [`view`] | `reshape` `permute` `transpose` `expand` `cat` `stack` `narrow` |
-//! | [`index`] | `index_select` |
-//! | [`conv`] | `im2col`, the unfold that turns convolution into a GEMM |
-//! | [`pool`] | `max_pool2d` `avg_pool2d` `adaptive_avg_pool2d` |
-//! | [`norm`] | `layer_norm` `batch_norm2d`, fused so the backward can reuse the statistics |
-//!
-//! Each public op computes its result on whichever device the inputs live on,
-//! then attaches a backward rule from [`autograd::ops`](crate::autograd::ops).
-//! The `raw_*` helpers here do the same compute with no graph, for use inside
-//! backward rules where recording would be wrong.
+//! Tensor ops, one module per family. Each computes on the inputs' device and
+//! attaches a rule from [`autograd::ops`](crate::autograd::ops).
 
 pub mod activation;
 pub mod arith;
@@ -37,10 +20,9 @@ use super::shape;
 use super::storage::Storage;
 use super::Tensor;
 
-/// Elements below which rayon's overhead outweighs the parallelism.
+/// Below this many elements rayon costs more than it saves.
 const PARALLEL_THRESHOLD: usize = 1 << 15;
 
-/// Apply an element-wise function of one tensor.
 pub(crate) fn unary_op(
     x: &Tensor,
     cpu: impl Fn(f32) -> f32 + Send + Sync,
@@ -55,7 +37,6 @@ pub(crate) fn unary_op(
     }
 }
 
-/// Apply an element-wise function of a tensor and a scalar.
 pub(crate) fn scalar_op(
     x: &Tensor,
     s: f32,
@@ -71,7 +52,6 @@ pub(crate) fn scalar_op(
     }
 }
 
-/// Apply an element-wise function of two tensors, broadcasting if their shapes differ.
 pub(crate) fn binary_op(
     a: &Tensor,
     b: &Tensor,
@@ -81,7 +61,7 @@ pub(crate) fn binary_op(
     assert_eq!(
         a.device(),
         b.device(),
-        "device mismatch: {} and {} — move one with .to()",
+        "device mismatch: {} and {}; move one with .to()",
         a.device(),
         b.device()
     );
@@ -100,10 +80,7 @@ pub(crate) fn binary_op(
     }
 }
 
-/// Broadcast both operands to a common shape, then apply `cpu`/`gpu`.
-///
-/// On the GPU we materialise the expansion so the kernel stays on-device; on the
-/// CPU we walk broadcast strides instead, which avoids the copy entirely.
+/// GPU expands both sides first, CPU walks broadcast strides and skips the copy.
 fn broadcast_binary_op(
     a: &Tensor,
     b: &Tensor,
@@ -140,7 +117,6 @@ fn broadcast_binary_op(
     Tensor::from_vec(data, &out_shape)
 }
 
-/// Map over host data, in parallel once it is large enough to pay off.
 pub(crate) fn map(data: &[f32], f: impl Fn(f32) -> f32 + Send + Sync) -> Vec<f32> {
     if data.len() >= PARALLEL_THRESHOLD {
         data.par_iter().map(|&v| f(v)).collect()
@@ -149,7 +125,6 @@ pub(crate) fn map(data: &[f32], f: impl Fn(f32) -> f32 + Send + Sync) -> Vec<f32
     }
 }
 
-/// Zip two equally sized host buffers, in parallel once large enough.
 pub(crate) fn zip(a: &[f32], b: &[f32], f: impl Fn(f32, f32) -> f32 + Send + Sync) -> Vec<f32> {
     debug_assert_eq!(a.len(), b.len());
     if a.len() >= PARALLEL_THRESHOLD {

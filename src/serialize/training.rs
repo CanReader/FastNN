@@ -1,10 +1,4 @@
-//! Checkpointing a run, not just a model.
-//!
-//! [`save`](super::save) writes weights, which is what you want for a finished
-//! model. Resuming an interrupted run needs more: the optimizer's momentum and
-//! moment estimates, its step count, and where the schedule had got to. Without
-//! them the optimizer restarts cold and the first update after resuming lands
-//! far harder than it should.
+//! Checkpoints that can resume a run: weights, optimizer state, and the step.
 //!
 //! ```no_run
 //! # use fastnn::prelude::*;
@@ -13,7 +7,7 @@
 //! # let total_steps = 10_000;
 //! let mut opt = Adam::new(model.parameters(), 1e-3);
 //!
-//! // Pick up where the last run stopped, or start fresh.
+//! // Resume if a checkpoint exists.
 //! let mut step = load_training(&model, &mut opt, "run.fdl").unwrap_or(0);
 //!
 //! while step < total_steps {
@@ -35,8 +29,7 @@ use crate::tensor::Tensor;
 
 use super::checkpoint::{load_tensors, save_tensors, Checkpoint};
 
-/// Namespaces inside the file. `/` cannot collide with the `.` that separates
-/// module paths in a parameter name.
+/// Name prefixes inside the file. `/` can't clash with the `.` in module paths.
 const PARAM: &str = "param/";
 const BUFFER: &str = "buffer/";
 const OPTIM: &str = "optim/";
@@ -69,11 +62,10 @@ pub fn save_training(
     save_tensors(&file, path)
 }
 
-/// Restore what [`save_training`] wrote, returning the step it stopped at.
+/// Restore what [`save_training`] wrote and return the step it stopped at.
 ///
-/// Errors if `path` is a plain model checkpoint rather than a training one —
-/// resuming from weights alone would silently reset the optimizer, which is the
-/// exact failure this module exists to prevent.
+/// A plain model checkpoint is an error, since resuming from it would silently
+/// reset the optimizer.
 pub fn load_training(
     model: &dyn Module,
     optimizer: &mut dyn Optimizer,
@@ -82,7 +74,7 @@ pub fn load_training(
     let file = load_tensors(path)?;
     if !file.contains_key(STEP) {
         return Err(Error::Checkpoint(
-            "not a training checkpoint — it has no optimizer state, so resuming \
+            "not a training checkpoint; it has no optimizer state, so resuming \
              from it would restart the optimizer. Use load() if that is what you want."
                 .into(),
         ));

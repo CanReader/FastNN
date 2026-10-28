@@ -1,14 +1,10 @@
-//! Drawing a token from a model's output logits.
-//!
-//! Every generation loop ends the same way: one position's logits become one
-//! token id. [`Sampler`] owns that step — temperature, top-k, and nucleus
-//! (top-p) filtering — and draws through [`crate::rng`], so a run under
-//! [`manual_seed`](crate::rng::manual_seed) generates reproducibly.
+//! Drawing a token from logits. Draws through [`crate::rng`], so
+//! [`manual_seed`](crate::rng::manual_seed) makes generation reproducible.
 
 use crate::rng;
 use crate::tensor::Tensor;
 
-/// Turns one position's logits into a token id.
+/// Turns one position's logits into a token id: temperature, top-k, top-p.
 ///
 /// ```
 /// use fastnn::nn::Sampler;
@@ -27,7 +23,7 @@ pub struct Sampler {
 }
 
 impl Sampler {
-    /// Plain sampling from the softmax of the logits.
+    /// Plain softmax sampling.
     pub fn new() -> Sampler {
         Sampler {
             temperature: 1.0,
@@ -37,12 +33,12 @@ impl Sampler {
         }
     }
 
-    /// Always the most likely token. Equivalent to `temperature(0.0)`.
+    /// Always the most likely token.
     pub fn greedy() -> Sampler {
         Sampler::new().temperature(0.0)
     }
 
-    /// Below 1.0 sharpens the distribution, above 1.0 flattens it; 0.0 is greedy.
+    /// Below 1.0 sharpens, above flattens, 0.0 is greedy.
     pub fn temperature(mut self, temperature: f32) -> Sampler {
         assert!(
             temperature >= 0.0,
@@ -66,8 +62,7 @@ impl Sampler {
         self
     }
 
-    /// Discourage tokens that already appeared. 1.0 is off; 1.1–1.3 is the
-    /// usual range. Applied through [`sample_with_history`](Self::sample_with_history).
+    /// Discourage tokens already seen. 1.0 is off. Needs [`sample_with_history`](Self::sample_with_history).
     pub fn repetition_penalty(mut self, penalty: f32) -> Sampler {
         assert!(
             penalty >= 1.0,
@@ -77,19 +72,13 @@ impl Sampler {
         self
     }
 
-    /// Draw a token id from `logits`, the unnormalized scores for one position.
-    ///
-    /// Any shape holding exactly the vocabulary — `[vocab]` or `[1, vocab]` —
-    /// is fine; the elements are read in order.
+    /// Draw a token id from one position's logits, any shape holding the vocabulary.
     pub fn sample(&self, logits: &Tensor) -> usize {
         self.sample_with_history(logits, &[])
     }
 
-    /// [`sample`](Self::sample), penalising tokens that appear in `history`.
-    ///
-    /// A positive logit is divided by the penalty and a negative one multiplied,
-    /// so "already used" always means "less likely", whichever side of zero the
-    /// score sits on.
+    /// [`sample`](Self::sample), penalising tokens in `history`. Positive logits are
+    /// divided and negative ones multiplied, so both get less likely.
     pub fn sample_with_history(&self, logits: &Tensor, history: &[usize]) -> usize {
         let mut logits = logits.to_vec();
         assert!(!logits.is_empty(), "cannot sample from empty logits");
@@ -106,8 +95,7 @@ impl Sampler {
             }
         }
 
-        // Most likely first. Sorting the whole vocabulary is fine at the sizes
-        // sampling sees, and gives top-k and top-p the same prefix structure.
+        // most likely first, so top-k and top-p are both prefixes
         let mut order: Vec<usize> = (0..logits.len()).collect();
         order.sort_by(|&a, &b| logits[b].total_cmp(&logits[a]));
 
@@ -118,7 +106,7 @@ impl Sampler {
             order.truncate(k);
         }
 
-        // Softmax over the survivors, subtracting the max so exp cannot overflow.
+        // subtract the max so exp can't overflow
         let max = logits[order[0]] / self.temperature;
         let mut probs: Vec<f32> = order
             .iter()
@@ -142,7 +130,7 @@ impl Sampler {
             probs.iter_mut().for_each(|q| *q /= sum);
         }
 
-        // Inverse-CDF draw; the fallback covers rounding leaving a sliver above 1.
+        // the fallback covers rounding leaving the sum just under 1
         let mut draw = rng::uniform(1, 0.0, 1.0)[0];
         for (&index, &prob) in order.iter().zip(&probs) {
             draw -= prob;

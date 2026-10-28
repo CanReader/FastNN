@@ -1,8 +1,6 @@
-<div align="center">
-
 # FastNN
 
-**A deep learning library in Rust, with CUDA kernels for the parts that matter.**
+A deep learning library in Rust, with CUDA kernels for the parts that matter.
 
 [![CI](https://github.com/CanReader/FastNN/actions/workflows/ci.yml/badge.svg)](https://github.com/CanReader/FastNN/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/fastnn.svg)](https://crates.io/crates/fastnn)
@@ -10,62 +8,30 @@
 [![MSRV](https://img.shields.io/badge/rustc-1.87+-blue.svg)](https://github.com/CanReader/FastNN/blob/master/Cargo.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-[Quick start](#quick-start) ·
-[Examples](#examples) ·
-[API docs](https://docs.rs/fastnn) ·
-[Releases](https://github.com/CanReader/FastNN/releases) ·
-[Contributing](CONTRIBUTING.md)
+Tensors with reverse-mode autograd, the usual layers, transformers with
+KV-cached generation, optimizers, data loading, resumable checkpoints and
+safetensors. It runs on the CPU by default and on NVIDIA GPUs with the `cuda`
+feature.
 
-</div>
-
-FastNN is a from-scratch deep learning library: tensors with reverse-mode
-autograd, the usual layers, transformers with KV-cached generation, modern
-optimizers, data loading, resumable checkpoints, and safetensors interchange.
-It runs on the CPU out of the box and on NVIDIA GPUs with one feature flag.
-
-It is built to be read. Every file is one idea and none of them are long, so you
-can follow a `loss.backward()` call from the training loop down to the kernel
-and back without getting lost.
-
-* **Readable.** 86 source files, about 12k lines. Forward ops and their backward
-  rules live in mirrored files, one per category.
-* **Verified.** Every backward rule is checked against finite differences of its
-  own forward, and every CUDA kernel against the CPU path.
-* **Built for real runs.** Exact resume including optimizer state, NaN tracing
-  to the op that produced it, frozen layers that skip their gradient entirely.
-
-## Contents
-
-* [Features](#features)
-* [Installation](#installation)
-* [Quick start](#quick-start)
-* [Examples](#examples)
-* [Platform support](#platform-support)
-* [How it fits together](#how-it-fits-together)
-* [Long training runs](#long-training-runs)
-* [Extending FastNN](#extending-fastnn)
-* [Error handling](#error-handling)
-* [Testing](#testing)
-* [CUDA](#cuda)
-* [Project layout](#project-layout)
-* [Limitations](#limitations)
-* [Contributing](#contributing)
-* [License](#license)
+The codebase is small on purpose: 86 source files, about 12k lines, one idea
+per file. You can follow `loss.backward()` from the training loop down to the
+kernel. Every backward rule is checked against finite differences of its own
+forward, and every CUDA kernel against the CPU path.
 
 ## Features
 
 | Area | What is in it |
 |---|---|
-| **Tensors** | Broadcasting arithmetic, matmul (batched, transposed forms), reductions, indexing, views, `cat`/`stack`/`narrow`, CPU or CUDA storage |
-| **Autograd** | Reverse mode with no tape and no global state, `no_grad`, `detect_anomaly`, gradient clipping by norm or value |
-| **Layers** | `Linear`, `Conv1d`, `Conv2d` (dilation, groups, depthwise), `ConvTranspose1d/2d`, pooling, `BatchNorm2d`, `LayerNorm`, `RMSNorm`, `Dropout`, `Embedding`, `LSTM`, `GRU` |
-| **Transformers** | `MultiHeadAttention` with causal and padding masks, encoder and decoder stacks, full encoder-decoder `Transformer` |
-| **Generation** | `KvCache` for incremental decoding, `Sampler` (temperature, top-k, top-p, repetition penalty), `BeamSearch` |
-| **Optimizers** | `SGD`, `Adam`, `AdamW`, `RMSprop`, `Adagrad`, `Adadelta`, `RAdam`, `Lion`, plus `Lookahead` and `Ema` wrappers |
-| **Schedules** | `Warmup`, `CosineAnnealing`, `OneCycle`, `StepDecay`, `Constant` |
-| **Losses** | Cross-entropy (label smoothing, class weights, ignore index), MSE, MAE, BCE, Huber, KL, NLL, focal, dice, Gaussian and Poisson NLL, triplet, contrastive, InfoNCE |
-| **Data** | `Dataset` trait, shuffling `DataLoader` with device placement, built-in MNIST |
-| **Checkpoints** | Native weights, full training state (weights + optimizer + step), safetensors read and write with F16/BF16 widening |
+| Tensors | Broadcasting arithmetic, matmul (batched, transposed forms), reductions, indexing, views, `cat`/`stack`/`narrow`, CPU or CUDA storage |
+| Autograd | Reverse mode, no tape, no global state. `no_grad`, `detect_anomaly`, gradient clipping by norm or value |
+| Layers | `Linear`, `Conv1d`, `Conv2d` (dilation, groups, depthwise), `ConvTranspose1d/2d`, pooling, `BatchNorm2d`, `LayerNorm`, `RMSNorm`, `Dropout`, `Embedding`, `LSTM`, `GRU` |
+| Transformers | `MultiHeadAttention` with causal and padding masks, encoder and decoder stacks, encoder-decoder `Transformer` |
+| Generation | `KvCache`, `Sampler` (temperature, top-k, top-p, repetition penalty), `BeamSearch` |
+| Optimizers | `SGD`, `Adam`, `AdamW`, `RMSprop`, `Adagrad`, `Adadelta`, `RAdam`, `Lion`, plus `Lookahead` and `Ema` wrappers |
+| Schedules | `Warmup`, `CosineAnnealing`, `OneCycle`, `StepDecay`, `Constant` |
+| Losses | Cross-entropy (label smoothing, class weights, ignore index), MSE, MAE, BCE, Huber, KL, NLL, focal, dice, Gaussian and Poisson NLL, triplet, contrastive, InfoNCE |
+| Data | `Dataset` trait, shuffling `DataLoader` with device placement, MNIST |
+| Checkpoints | Weights, full training state (weights, optimizer, step), safetensors read and write with F16/BF16 widening |
 
 ## Installation
 
@@ -74,14 +40,12 @@ cargo add fastnn                   # CPU only, no CUDA toolkit needed
 cargo add fastnn --features cuda   # with the CUDA kernels
 ```
 
-| Requirement | Version |
-|---|---|
-| Rust | 1.87 or newer |
-| CUDA toolkit (only with `--features cuda`) | 11.8 or newer, for GPUs from Turing to Hopper (compute capability 7.5 to 9.0) |
+Needs Rust 1.87 or newer. With `--features cuda` you also need the CUDA toolkit,
+11.8 or newer, for GPUs from Turing to Hopper (compute capability 7.5 to 9.0).
 
 ## Quick start
 
-A complete MNIST training loop:
+An MNIST training loop:
 
 ```rust
 use fastnn::prelude::*;
@@ -109,8 +73,7 @@ for batch in loader.iter() {
 save(&model, "mnist.fdl")?;
 ```
 
-No gradient-mode flags, no borrow dance around the optimizer. That is the whole
-training loop. To train on a GPU, move the model and the loader:
+To train on a GPU, move the model and the loader:
 
 ```rust
 let device = Device::best();       // GPU if there is one, else CPU
@@ -125,21 +88,21 @@ cargo run --release --example simple_mlp
 cargo run --release --example mnist_cnn --features cuda
 ```
 
-Always use `--release`. Debug builds are roughly 50x slower.
+Use `--release`. Debug builds are about 50x slower.
 
 | Example | What it shows |
 |---|---|
-| `simple_mlp` | The smallest complete training loop, an MLP learning XOR |
+| `simple_mlp` | MLP learning XOR, the smallest training loop |
 | `mnist_mlp` | Dataset download, batching, evaluation, checkpointing |
 | `mnist_cnn` | Convolutions, batch norm, pooling, an LR schedule |
-| `char_lm` | A small GPT trained from scratch that generates text, with resume on Ctrl-C |
+| `char_lm` | Small GPT trained from scratch, resumes after Ctrl-C |
 | `finetune` | Pretrain, freeze the backbone, train a new head |
 | `gan` | Two networks trained against each other |
-| `vae` | A variational autoencoder on 2-D data |
-| `reinforce` | Policy-gradient reinforcement learning on a bandit |
-| `multi_task` | One shared trunk, two heads, one combined loss |
+| `vae` | Variational autoencoder on 2-D data |
+| `reinforce` | Policy gradient on a bandit |
+| `multi_task` | Shared trunk, two heads, one combined loss |
 
-`char_lm` trains on a small embedded corpus by default, or on any text file:
+`char_lm` uses a small embedded corpus by default, or any text file:
 
 ```bash
 curl -o shakespeare.txt \
@@ -149,9 +112,8 @@ cargo run --release --example char_lm -- shakespeare.txt
 
 ### Prebuilt binaries
 
-Every [release](https://github.com/CanReader/FastNN/releases) ships all of the
-examples prebuilt, so you can try FastNN without installing Rust. Download the
-archive for your platform, extract it, and run any example directly.
+Each [release](https://github.com/CanReader/FastNN/releases) has the examples
+prebuilt, so you can try them without installing Rust.
 
 | Platform | Archive |
 |---|---|
@@ -162,10 +124,9 @@ archive for your platform, extract it, and run any example directly.
 | macOS Intel | `fastnn-<version>-x86_64-macos.tar.gz` |
 | Windows x86_64 | `fastnn-<version>-x86_64-windows.zip` |
 
-Each release includes a `SHA256SUMS` file and a build provenance attestation
-for every archive, which you can check with
-`gh attestation verify <archive> --repo CanReader/FastNN`. The CUDA build links
-against the CUDA 13 runtime, so it needs that installed.
+Releases include a `SHA256SUMS` file and a build provenance attestation for each
+archive (`gh attestation verify <archive> --repo CanReader/FastNN`). The CUDA
+build links against the CUDA 13 runtime.
 
 ## Platform support
 
@@ -173,7 +134,7 @@ against the CUDA 13 runtime, so it needs that installed.
 |---|---|---|
 | Linux x86_64 | Tested in CI | Built in CI, parity tested on real hardware |
 | Linux ARM64 | Built for releases | Not supported |
-| macOS (Intel, Apple Silicon) | Tested in CI | Not available on macOS |
+| macOS (Intel, Apple Silicon) | Tested in CI | Not available |
 | Windows x86_64 | Tested in CI | Should build, not tested |
 
 ## How it fits together
@@ -191,34 +152,25 @@ against the CUDA 13 runtime, so it needs that installed.
   optim     opt.step() reads those slots and updates in place
 ```
 
-Everything starts on the CPU. `model.to_device(device)` moves a model,
-`DataLoader::to_device` moves its batches, and mixing devices panics rather
-than copying behind your back.
+Everything starts on the CPU. `model.to_device(device)` and
+`DataLoader::to_device` move things over, and mixing devices panics instead of
+copying behind your back.
 
-Two design decisions shape the rest of the library.
+The graph is the tensors. A tensor produced by a differentiable op carries a
+node naming the rule that made it and the tensors it consumed, and
+`loss.backward()` walks that. Drop the loss and the graph frees itself. A tensor
+with no node is plain data, so there is no `requires_grad` flag. Wrap inference
+in `no_grad(|| ...)` to skip building a graph.
 
-**The graph is the tensors.** There is no tape and no global state. A tensor
-produced by a differentiable op carries a node naming the rule that made it and
-the tensors it consumed, so `loss.backward()` just walks that structure. Drop the
-loss and the graph frees itself. A tensor with no node is plain data, so there is
-no `requires_grad` flag to keep in sync. Wrap inference in `no_grad(|| ...)` to
-skip building a graph at all.
-
-**Parameters are shared slots.** `Param` is a handle, not a value. The model and
-the optimizer hold handles to the same weight and the same gradient, which is why
-`opt.step()` needs no borrow of the model. It is also why weight tying works
-without special support: use the same handle twice and both paths' gradients add
-up on their own.
+`Param` is a handle, not a value. The model and the optimizer hold handles to
+the same weight and gradient, so `opt.step()` doesn't borrow the model. Weight
+tying works the same way: use the handle twice and the gradients add up.
 
 ## Long training runs
 
-Four things a long, unattended run needs that the quick start does not show.
-
-**Resume exactly where you stopped.** `save()` writes weights, which is right for
-a finished model. Resuming also needs the optimizer: momentum, Adam's moment
-estimates, and the step count that drives bias correction. Restore weights alone
-and the optimizer restarts at step 1, so the first update after resuming lands
-far harder than it should.
+**Resume.** `save()` writes weights, which is enough for a finished model.
+Resuming also needs the optimizer's moments and step count. Without them Adam
+restarts at step 1 and the first update is far too large.
 
 ```rust
 let mut step = load_training(&model, &mut opt, "run.fdl").unwrap_or(0);
@@ -233,9 +185,9 @@ while step < total {
 Loading a plain checkpoint with `load_training` is an error, not a silent
 optimizer reset.
 
-**Find the NaN at the op that made it.** One non-finite gradient becomes a
-non-finite weight, and every activation downstream is NaN from then on. By the
-time the loss prints NaN the checkpoint is poisoned and the culprit is long gone.
+**NaNs.** One non-finite gradient poisons the weights, and by the time the loss
+prints NaN the culprit is long gone. `detect_anomaly` panics at the op that
+produced it.
 
 ```rust
 detect_anomaly(|| {
@@ -245,20 +197,18 @@ detect_anomaly(|| {
 if !opt.gradients_are_finite() { continue; }   // cheap guard: skip the batch
 ```
 
-Both read every gradient, so they are debugging and guard-rail tools, not
-something to leave on in a healthy loop.
+Both read every gradient, so don't leave them on in a healthy loop.
 
-**Freeze a backbone.** A frozen parameter hands out a detached tensor, so the
-backward pass stops there and no gradient is computed only to be thrown away.
+**Freezing.** A frozen parameter hands out a detached tensor, so the backward
+pass stops there and no gradient is computed for it.
 
 ```rust
 backbone.freeze();
 let mut opt = Adam::new(model.parameters(), 1e-3);   // updates only the head
 ```
 
-**Report a bad shape instead of crashing.** Ordinary ops panic, which is right
-inside a model. At the edge of an application, where a shape comes from a config
-file or an upload, use the `try_` variants.
+**Fallible ops.** Ordinary ops panic on bad shapes. Where a shape comes from a
+config file or an upload, use the `try_` variants.
 
 ```rust
 let y = x.try_matmul(&w)?;      // Error::Shape, not a panic
@@ -266,13 +216,13 @@ x.try_reshape(&[2, -1])?;
 table.try_index_select(&ids)?;
 ```
 
-They validate and then delegate, so there is still exactly one implementation of
-each operation, and they build the same graph.
+They validate and then call the panicking op, so there is one implementation of
+each operation.
 
-## Extending FastNN
+## Extending
 
-**A new layer.** Implement `forward`, plus `named_parameters` if it has weights.
-Device placement, parameter counting, and gradient zeroing all come from those.
+**A layer.** Implement `forward`, plus `named_parameters` if it has weights.
+Device placement, parameter counting and gradient zeroing follow from those.
 
 ```rust
 struct Residual { inner: Linear }
@@ -287,9 +237,8 @@ impl Module for Residual {
 }
 ```
 
-**A new op.** Write the forward in `tensor/ops/`, the backward rule in
-`autograd/ops/`, attach it with `with_grad`, and add a case to
-`tests/gradcheck.rs`.
+**An op.** Forward in `tensor/ops/`, backward rule in `autograd/ops/`, attach it
+with `with_grad`, add a case to `tests/gradcheck.rs`.
 
 ```rust
 // tensor/ops/unary.rs
@@ -307,23 +256,18 @@ impl Backward for SoftplusBackward {
 }
 ```
 
-The rule returns gradients in the same order as the inputs. Save detached
-tensors: a saved value that still carries its own node would pin the graph that
-produced it.
+The rule returns gradients in input order. Save detached tensors, otherwise the
+saved value pins the graph that produced it. [CONTRIBUTING.md](CONTRIBUTING.md)
+has the full checklist.
 
-**A new dataset.** Implement `Dataset` and hand it to a `DataLoader`. Items are
-written into caller-provided slices rather than returned as tensors, so batching
-60,000 images does not build 60,000 throwaway ones.
+**A dataset.** Implement `Dataset` and pass it to a `DataLoader`. Items are
+written into caller-provided slices instead of returned as tensors, so batching
+60,000 images doesn't allocate 60,000 throwaway ones.
 
-[CONTRIBUTING.md](CONTRIBUTING.md) has the full checklist for adding an op.
+## Errors
 
-## Error handling
-
-Tensor maths panics on shape and device mistakes. Those are bugs in the calling
-code, like indexing past the end of a slice, and threading `Result` through every
-`add` would bury the model in `?` for no safety gained.
-
-`Result` is for what genuinely fails at runtime:
+Shape and device mistakes panic. They are bugs in the calling code, like
+indexing past the end of a slice. `Result` is for things that fail at runtime:
 
 ```rust
 let device = Device::cuda(0)?;             // no GPU
@@ -344,42 +288,32 @@ cargo test --features cuda --test cuda_parity -- --test-threads=1   # CPU vs GPU
 cargo bench                    # throughput
 ```
 
-`gradcheck` compares every backward rule with central finite differences of its
-own forward. It is why the autograd layer can be trusted, and a new rule without
-a case there is not finished.
+`cuda_parity` runs each op on both devices and compares. It skips itself when
+there is no GPU. It has already caught a real bug: the softmax kernel's block
+reduction assumed a power-of-two thread count and dropped the tail of every row
+whose width wasn't one, which included MNIST's ten classes.
 
-`cuda_parity` runs each op on both devices and compares the results. It skips
-itself when there is no GPU, so a CPU-only machine still gets a green run. It has
-already caught a real bug: the softmax kernel's block reduction assumed a
-power-of-two thread count and silently dropped the tail of every row whose width
-was not one, which included MNIST's ten classes.
-
-Every pull request runs formatting, clippy, the full suite on Linux, macOS, and
-Windows, an MSRV build, docs, packaging, and a CUDA compile. A nightly job reruns
-everything in release mode on stable and beta and trains the examples end to end.
+CI runs formatting, clippy, the suite on Linux, macOS and Windows, an MSRV
+build, docs, packaging and a CUDA compile. A nightly job reruns the suite in
+release on stable and beta and trains the examples that don't need a download.
 
 ## CUDA
 
-The `cuda` feature is opt-in, so a plain `cargo add fastnn` never needs the
-toolkit. With the feature on, `build.rs` compiles `cuda/kernels.cu` with `nvcc`
-and links `cudart`, `cublas`, and `curand`.
+The `cuda` feature is opt-in. With it on, `build.rs` compiles `cuda/kernels.cu`
+with `nvcc` and links `cudart`, `cublas` and `curand`.
 
-* `nvcc` is found on `PATH`, so put the toolkit's `bin` directory there, or
-  point the `NVCC` environment variable at the compiler directly.
+* `nvcc` is found on `PATH`, or set the `NVCC` environment variable.
 * Headers and libraries come from `CUDA_PATH`, then `CUDA_HOME`, then the
-  default install location. Make sure that is the same toolkit as the `nvcc`
-  you picked, or the kernels build against one CUDA version and link against
-  another.
+  default install location. Make sure that is the same toolkit as your `nvcc`.
 * If `nvcc` rejects your system compiler as too new, point `FASTNN_NVCC_CCBIN`
   at one it accepts.
 * Without the feature, `cuda/stubs.c` supplies the symbols, `Device::cuda(0)`
   returns an error, and everything runs on the CPU.
 
-Two things carry most of the GPU performance. Matrix multiplication goes through
-cuBLAS, and the two transposed forms the backward pass needs (`matmul_nt`,
-`matmul_tn`) use a transpose flag instead of building a transposed copy. GPU
-allocations come from a size-keyed free list, so the many short-lived temporaries
-a training step creates cost a hash lookup instead of a driver round trip.
+Matmul goes through cuBLAS. The transposed forms the backward pass needs
+(`matmul_nt`, `matmul_tn`) use a transpose flag instead of a transposed copy.
+GPU allocations come from a size-keyed free list, so the short-lived temporaries
+in a training step don't each hit the driver.
 
 ## Project layout
 
@@ -418,29 +352,25 @@ src/
 cuda/kernels.cu    every GPU kernel
 ```
 
-`tensor/ops/` and `autograd/ops/` mirror each other file for file: the forward
-for `relu` is in `tensor/ops/activation.rs` and its derivative is in
+`tensor/ops/` and `autograd/ops/` mirror each other file for file. The forward
+for `relu` is in `tensor/ops/activation.rs`, its derivative in
 `autograd/ops/activation.rs`.
 
 ## Limitations
 
-* Compute is `f32`. Checkpoints stored as F16 or BF16 load fine and are widened
-  on read, but the maths runs in single precision.
-* `LSTM` and `GRU` are built from ordinary differentiable ops, one graph node per
-  gate per timestep. Correct, and fine for short sequences; use a transformer for
-  long ones.
-* Tensors are always contiguous. `permute` and `expand` write a new buffer rather
-  than returning a strided view.
+* Compute is `f32`. F16 and BF16 checkpoints load and are widened on read.
+* `LSTM` and `GRU` are built from ordinary ops, one graph node per gate per
+  timestep. Fine for short sequences, use a transformer for long ones.
+* Tensors are always contiguous. `permute` and `expand` write a new buffer
+  instead of returning a strided view.
 
 ## Contributing
 
-Bug reports, ideas, and pull requests are all welcome. [CONTRIBUTING.md](CONTRIBUTING.md)
-covers the setup, the conventions, what CI checks, and how to add an op. Issues
-labelled [`good first issue`](https://github.com/CanReader/FastNN/labels/good%20first%20issue)
-are a good place to start.
-
-Please report security problems privately, as described in [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Issues labelled
+[`good first issue`](https://github.com/CanReader/FastNN/labels/good%20first%20issue)
+are a good place to start. Report security problems privately, see
+[SECURITY.md](SECURITY.md).
 
 ## License
 
-FastNN is released under the [MIT License](LICENSE).
+[MIT](LICENSE)

@@ -1,12 +1,10 @@
-//! Derivatives of element-wise maths.
-//!
-//! Each rule multiplies the incoming gradient by a local derivative. Where that
-//! derivative is a simple function of the saved input, `elementwise` builds it.
+//! Derivatives of element-wise maths. Most multiply the gradient by a local
+//! derivative, which `elementwise` builds on the host.
 
 use crate::autograd::Backward;
 use crate::tensor::Tensor;
 
-/// `g · f(x)`, with `f` evaluated on the host and moved to the gradient's device.
+/// `g · f(x)`, with `f` evaluated on the host.
 pub(crate) fn elementwise(
     grad: &Tensor,
     input: &Tensor,
@@ -28,7 +26,7 @@ impl Backward for NegBackward {
     }
 }
 
-/// `d(eˣ) = g·eˣ` — reuses the forward output.
+/// `d(eˣ) = g·eˣ`.
 pub struct ExpBackward {
     pub output: Tensor,
 }
@@ -56,7 +54,7 @@ impl Backward for LogBackward {
     }
 }
 
-/// `d(√x) = g / (2√x)` — reuses the forward output.
+/// `d(√x) = g / (2√x)`.
 pub struct SqrtBackward {
     pub output: Tensor,
 }
@@ -102,8 +100,7 @@ impl Backward for PowBackward {
     }
 }
 
-/// Clamping passes the gradient only where the input was inside the range;
-/// elsewhere the output was constant.
+/// Passes the gradient only where the input was inside the range.
 pub struct ClampBackward {
     pub input: Tensor,
     pub lo: f32,

@@ -1,8 +1,4 @@
-//! Derivatives of the fused normalization ops.
-//!
-//! Normalizing couples every element in a group: change one input and the mean
-//! and variance move, so every output in that group moves. The two correction
-//! terms below are exactly that coupling.
+//! Derivatives of the fused norms.
 
 use crate::autograd::Backward;
 use crate::cuda::kernels;
@@ -32,7 +28,7 @@ impl Backward for LayerNormBackward {
         for r in 0..rows {
             let base = r * cols;
 
-            // Correction terms: how much the mean and the variance shift.
+            // the mean and variance both move with every input in the row
             let mut mean_shift = 0.0f32;
             let mut scale_shift = 0.0f32;
             for c in 0..cols {
@@ -62,7 +58,7 @@ impl Backward for LayerNormBackward {
     }
 }
 
-/// LayerNorm on the GPU — one kernel produces all three gradients.
+/// LayerNorm on the GPU, one kernel for all three gradients.
 pub struct LayerNormCudaBackward {
     pub input: Tensor,
     pub gamma: Tensor,
@@ -101,8 +97,7 @@ impl Backward for LayerNormCudaBackward {
     }
 }
 
-/// BatchNorm2d. Same structure as LayerNorm, but the group is a channel across
-/// the whole batch rather than a row across features.
+/// BatchNorm2d. Like LayerNorm but the group is a channel across the batch.
 pub struct BatchNorm2dBackward {
     pub normalized: Tensor,
     pub gamma: Vec<f32>,

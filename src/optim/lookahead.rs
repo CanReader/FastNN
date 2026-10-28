@@ -1,10 +1,4 @@
-//! Lookahead: slow weights that follow any inner optimizer (Zhang et al., 2019).
-//!
-//! The inner optimizer explores for `k` fast steps; then the *slow* copy of
-//! the weights moves a fraction α toward wherever the fast weights ended up,
-//! and the fast weights restart from there. The averaging damps the inner
-//! optimizer's oscillations without slowing its progress — variance reduction
-//! for free, at the cost of one extra weight copy.
+//! Lookahead (Zhang et al., 2019): slow weights that follow any inner optimizer.
 
 use crate::error::Result;
 use crate::nn::Param;
@@ -29,17 +23,16 @@ pub struct Lookahead<O: Optimizer> {
 }
 
 impl<O: Optimizer> Lookahead<O> {
-    /// Sync every `k` inner steps, moving the slow weights by `alpha` toward
-    /// the fast ones. The paper's defaults are k = 5, α = 0.5.
+    /// Sync every `k` inner steps, moving the slow weights `alpha` of the way
+    /// to the fast ones.
     pub fn new(inner: O, k: usize, alpha: f32) -> Lookahead<O> {
         assert!(k >= 1, "lookahead needs k >= 1");
         assert!(
             (0.0..=1.0).contains(&alpha),
             "alpha must be in [0, 1], got {alpha}"
         );
-        // The slow weights start where the parameters start (φ₀ = θ₀). Seeding
-        // lazily at the first sync would seed them from weights that had
-        // already taken k fast steps, making that sync a no-op.
+        // Seeding lazily at the first sync would copy weights that already took
+        // k fast steps and make that sync a no-op.
         let slow = inner
             .parameters()
             .iter()
@@ -66,12 +59,11 @@ impl<O: Optimizer> Optimizer for Lookahead<O> {
 
         for (index, param) in self.inner.parameters().iter().enumerate() {
             let fast = param.value();
-            // A parameter added after a state load may have no slow copy yet.
+            // No slow copy yet if the state was loaded without one.
             let slow = match &self.slow[index] {
                 Some(slow) => slow.add(&fast.sub(slow).mul_scalar(self.alpha)),
                 None => fast.clone(),
             };
-            // Fast weights restart from the averaged point.
             param.set_value(slow.clone());
             self.slow[index] = Some(slow);
         }
@@ -109,8 +101,6 @@ mod tests {
     use super::*;
     use crate::optim::SGD;
 
-    /// After k fast steps of −lr each, the parameter must sit at α times the
-    /// fast displacement: slow-weight interpolation, computed by hand.
     #[test]
     fn sync_lands_exactly_at_the_interpolated_point() {
         let param = Param::new(Tensor::from_vec(vec![0.0], &[1]));
@@ -120,7 +110,7 @@ mod tests {
             param.set_grad(Tensor::from_vec(vec![1.0], &[1]));
             opt.step();
         }
-        // Fast weights walked to −0.2; slow started at 0.0; sync: 0 + 0.5·(−0.2).
+        // Fast weights walk to -0.2, so the sync lands at 0.5 * -0.2.
         let got = param.value().to_vec()[0];
         assert!(
             (got - -0.1).abs() < 1e-6,

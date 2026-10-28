@@ -1,7 +1,4 @@
-//! Safe wrappers around the CUDA kernels.
-//!
-//! Each function allocates its output buffer, launches the kernel, and turns a
-//! non-zero status into an [`Error::Cuda`]. Callers never touch raw pointers.
+//! Safe wrappers over [`super::ffi`]: allocate the output, launch, map a bad status to [`Error::Cuda`].
 
 use std::ffi::c_int;
 
@@ -9,7 +6,7 @@ use super::buffer::CudaBuffer;
 use super::ffi::{self, BinaryKernel, ScalarKernel, UnaryKernel};
 use crate::error::{Error, Result};
 
-/// Run `kernel`, returning its freshly allocated output of `out_len` floats.
+/// Runs `kernel` on a fresh output of `out_len` floats.
 fn launch(
     out_len: usize,
     name: &'static str,
@@ -22,8 +19,6 @@ fn launch(
     }
     Ok(out)
 }
-
-// ── Element-wise ─────────────────────────────────────────────────────────────
 
 pub fn binary(
     a: &CudaBuffer,
@@ -60,8 +55,6 @@ pub fn leaky_relu(a: &CudaBuffer, slope: f32, n: usize) -> Result<CudaBuffer> {
     })
 }
 
-// ── Softmax ──────────────────────────────────────────────────────────────────
-
 pub fn softmax(x: &CudaBuffer, rows: usize, cols: usize) -> Result<CudaBuffer> {
     launch(rows * cols, "softmax", |out| unsafe {
         ffi::fastnn_cuda_softmax(x.as_ptr(), out.as_mut_ptr(), rows as c_int, cols as c_int)
@@ -91,8 +84,6 @@ pub fn softmax_backward(
     })
 }
 
-// ── GEMM ─────────────────────────────────────────────────────────────────────
-
 /// `C[m,n] = A[m,k] · B[k,n]`
 pub fn matmul(a: &CudaBuffer, b: &CudaBuffer, m: usize, n: usize, k: usize) -> Result<CudaBuffer> {
     launch(m * n, "matmul", |out| unsafe {
@@ -112,7 +103,7 @@ pub fn matmul(a: &CudaBuffer, b: &CudaBuffer, m: usize, n: usize, k: usize) -> R
     })
 }
 
-/// `C[m,n] = A[m,k] · B[n,k]ᵀ` — B is read transposed, no staging buffer.
+/// `C[m,n] = A[m,k] · B[n,k]ᵀ`
 pub fn matmul_nt(
     a: &CudaBuffer,
     b: &CudaBuffer,
@@ -132,7 +123,7 @@ pub fn matmul_nt(
     })
 }
 
-/// `C[m,n] = A[k,m]ᵀ · B[k,n]` — A is read transposed, no staging buffer.
+/// `C[m,n] = A[k,m]ᵀ · B[k,n]`
 pub fn matmul_tn(
     a: &CudaBuffer,
     b: &CudaBuffer,
@@ -217,8 +208,6 @@ pub fn matmul_batched_tn(
     })
 }
 
-// ── Layout ───────────────────────────────────────────────────────────────────
-
 pub fn transpose_2d(x: &CudaBuffer, rows: usize, cols: usize) -> Result<CudaBuffer> {
     launch(rows * cols, "transpose", |out| unsafe {
         ffi::fastnn_cuda_transpose(x.as_ptr(), out.as_mut_ptr(), rows as c_int, cols as c_int)
@@ -242,9 +231,8 @@ pub fn transpose_batched(
     })
 }
 
-/// Gather `numel` elements: output index `i` reads the input element whose
-/// coordinates come from decoding `i` against `out_strides` and re-encoding with
-/// `in_strides` permuted by `perm`. Stride 0 broadcasts a dimension.
+/// Gathers `numel` elements by decoding each output index with `out_strides` and re-encoding with
+/// `in_strides` permuted by `perm`. A stride of 0 broadcasts.
 pub fn permute_nd(
     x: &CudaBuffer,
     out_strides: &[usize],
@@ -267,8 +255,6 @@ pub fn permute_nd(
         )
     })
 }
-
-// ── Reductions ───────────────────────────────────────────────────────────────
 
 pub fn sum(x: &CudaBuffer, n: usize) -> Result<CudaBuffer> {
     launch(1, "sum", |out| unsafe {
@@ -308,8 +294,6 @@ pub fn sum_axis(x: &CudaBuffer, shape: &[usize], axis: usize) -> Result<CudaBuff
         )
     })
 }
-
-// ── Fused layers ─────────────────────────────────────────────────────────────
 
 /// Returns `(output, mean, inv_std)`; the last two feed [`layer_norm_backward`].
 pub fn layer_norm_forward(
@@ -379,10 +363,7 @@ pub fn layer_norm_backward(
     Ok((grad_x, grad_gamma, grad_beta))
 }
 
-/// Upload token ids for the embedding kernels.
-///
-/// `CudaBuffer` is typed as f32, but the kernel takes `int*`; both are 4 bytes,
-/// so we reinterpret the slice and the kernel casts the pointer back.
+/// Uploads token ids. A `CudaBuffer` holds f32 but the kernels read `int*`, and both are 4 bytes.
 pub fn upload_ids(ids: &[i32]) -> Result<CudaBuffer> {
     let as_f32 = unsafe { std::slice::from_raw_parts(ids.as_ptr() as *const f32, ids.len()) };
     CudaBuffer::from_slice(as_f32)
@@ -412,7 +393,7 @@ pub fn embedding_backward(
     dim: usize,
     vocab: usize,
 ) -> Result<CudaBuffer> {
-    // The kernel scatter-adds, so the accumulator must start at zero.
+    // the kernel scatter-adds
     let out = CudaBuffer::zeros(vocab * dim)?;
     let code = unsafe {
         ffi::fastnn_cuda_embedding_backward(
@@ -432,9 +413,7 @@ pub fn embedding_backward(
     Ok(out)
 }
 
-// ── Convolution lowering ─────────────────────────────────────────────────────
-
-/// Unfold `[n, c, h, w]` into `[n, c·kh·kw, out_h·out_w]` columns on the device.
+/// Unfolds `[n, c, h, w]` into `[n, c·kh·kw, out_h·out_w]` columns.
 pub fn im2col(
     input: &CudaBuffer,
     (n, c, h, w): (usize, usize, usize, usize),
@@ -466,7 +445,7 @@ pub fn im2col(
     })
 }
 
-/// Fold columns back into `[n, c, h, w]`, summing where windows overlapped.
+/// Folds columns back into `[n, c, h, w]`, summing overlaps.
 pub fn col2im(
     cols: &CudaBuffer,
     (n, c, h, w): (usize, usize, usize, usize),

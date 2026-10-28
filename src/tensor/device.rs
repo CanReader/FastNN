@@ -1,13 +1,11 @@
-//! Where a tensor's data lives.
+//! Where a tensor lives.
 
 use std::fmt;
 
 use crate::error::{Error, Result};
 
-/// The device a tensor's storage is allocated on.
-///
-/// Ops require both operands on the same device; mixing them panics. Move data
-/// explicitly with [`Tensor::to`](crate::tensor::Tensor::to).
+/// Where a tensor's storage is allocated. Ops panic if operands disagree, so
+/// move data with [`Tensor::to`](crate::tensor::Tensor::to).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Device {
     Cpu,

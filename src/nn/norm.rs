@@ -7,10 +7,12 @@ use crate::tensor::Tensor;
 use super::module::Module;
 use super::param::{Buffer, Param};
 
+const LAYER_NORM_EPS: f32 = 1e-5;
+const RMS_NORM_EPS: f32 = 1e-6;
+const BATCH_NORM_EPS: f32 = 1e-5;
+const BATCH_NORM_MOMENTUM: f32 = 0.1;
+
 /// Normalize each sample over its last dimension, then scale and shift.
-///
-/// The workhorse of transformers: it depends on nothing but the sample itself,
-/// so batch size and sequence length cannot change its behaviour.
 pub struct LayerNorm {
     pub gamma: Param,
     pub beta: Param,
@@ -24,11 +26,11 @@ impl LayerNorm {
             gamma: Param::new(Tensor::ones(&[size])),
             beta: Param::new(Tensor::zeros(&[size])),
             size,
-            eps: 1e-5,
+            eps: LAYER_NORM_EPS,
         }
     }
 
-    /// Override the variance floor. Larger values trade accuracy for stability.
+    /// Override the variance floor.
     pub fn eps(mut self, eps: f32) -> LayerNorm {
         self.eps = eps;
         self
@@ -56,9 +58,6 @@ impl Module for LayerNorm {
 }
 
 /// Scale by the root-mean-square of each sample, with no mean subtraction.
-///
-/// Cheaper than [`LayerNorm`] and used by most recent large models. Built from
-/// ordinary tensor ops, so it needs no gradient rule of its own.
 pub struct RMSNorm {
     pub gamma: Param,
     size: usize,
@@ -70,7 +69,7 @@ impl RMSNorm {
         RMSNorm {
             gamma: Param::new(Tensor::ones(&[size])),
             size,
-            eps: 1e-6,
+            eps: RMS_NORM_EPS,
         }
     }
 }
@@ -98,11 +97,8 @@ impl Module for RMSNorm {
     }
 }
 
-/// Normalize each channel of `[N, C, H, W]` across the batch and spatial positions.
-///
-/// In training it uses the current batch's statistics and folds them into a
-/// running estimate; in eval it applies that estimate as a plain affine map, so
-/// a single image gives the same answer as a large batch.
+/// Normalize each channel of `[N, C, H, W]` over the batch and spatial positions.
+/// Eval mode uses the running statistics instead of the batch's.
 pub struct BatchNorm2d {
     pub gamma: Param,
     pub beta: Param,
@@ -122,8 +118,8 @@ impl BatchNorm2d {
             running_mean: Buffer::new(Tensor::zeros(&[channels])),
             running_var: Buffer::new(Tensor::ones(&[channels])),
             channels,
-            eps: 1e-5,
-            momentum: 0.1,
+            eps: BATCH_NORM_EPS,
+            momentum: BATCH_NORM_MOMENTUM,
             training: AtomicBool::new(true),
         }
     }
@@ -134,7 +130,6 @@ impl BatchNorm2d {
         self
     }
 
-    /// Blend this batch's statistics into the running estimates.
     fn update_running(&self, mean: &[f32], var: &[f32]) {
         let blend = |old: Tensor, new: &[f32]| {
             let old = old.to_vec();
@@ -165,7 +160,6 @@ impl Module for BatchNorm2d {
         let per_channel = [1i64, self.channels as i64, 1, 1];
 
         if !self.training.load(Ordering::Relaxed) {
-            // Frozen statistics make this an affine map, which ordinary ops express.
             let scale = self.running_var.value().add_scalar(self.eps).sqrt();
             let centred = input.sub(&self.running_mean.value().reshape(&per_channel));
             return centred

@@ -1,8 +1,5 @@
-//! Backward rules, mirroring the layout of [`tensor::ops`](crate::tensor::ops).
-//!
-//! A rule is a small struct holding what the derivative needs, plus one
-//! [`Backward::backward`](super::Backward::backward) method. They run with
-//! tracking suppressed, so they can use ordinary tensor ops freely.
+//! Backward rules, one file per file in [`tensor::ops`](crate::tensor::ops).
+//! They run with tracking off, so they can use ordinary tensor ops.
 
 pub mod activation;
 pub mod arith;
@@ -18,11 +15,7 @@ pub mod view;
 
 use crate::tensor::Tensor;
 
-/// Undo broadcasting: sum `grad` down to `target`.
-///
-/// A forward op that broadcast a `[1, n]` bias across a batch produced a
-/// `[batch, n]` output, so its gradient arrives at `[batch, n]` and every row
-/// contributed. Summing the stretched axes is the adjoint of stretching them.
+/// Undo broadcasting by summing `grad` down to `target`.
 pub(crate) fn reduce_to(grad: &Tensor, target: &[usize]) -> Tensor {
     if grad.shape() == target {
         return grad.clone();

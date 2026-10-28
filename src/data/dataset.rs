@@ -1,13 +1,11 @@
-//! The dataset trait and simple in-memory implementations.
+//! The dataset trait and an in-memory implementation.
 
 use crate::tensor::{shape, Tensor};
 
 /// A finite, indexable collection of `(input, target)` pairs.
 ///
-/// Items are written into caller-provided slices rather than returned as
-/// tensors. A [`DataLoader`](super::DataLoader) allocates one buffer per batch
-/// and fills it, so batching a dataset of 60,000 images does not build 60,000
-/// throwaway tensors.
+/// Items are written into slices so a [`DataLoader`](super::DataLoader) can fill
+/// one buffer per batch instead of building a tensor per item.
 pub trait Dataset: Send + Sync {
     /// Number of items.
     fn len(&self) -> usize;

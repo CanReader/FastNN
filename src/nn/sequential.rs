@@ -5,7 +5,7 @@ use crate::tensor::Tensor;
 use super::module::{scoped, Module};
 use super::param::{Buffer, Param};
 
-/// Runs its layers in order, feeding each output into the next.
+/// Runs its layers in order.
 ///
 /// ```
 /// use fastnn::prelude::*;
@@ -31,14 +31,13 @@ impl Sequential {
     }
 
     /// Append a layer, returning `self` so calls chain.
-    // Named for the builder pattern, not arithmetic; `std::ops::Add` is unrelated.
     #[allow(clippy::should_implement_trait)]
     pub fn add(mut self, layer: impl Module + 'static) -> Sequential {
         self.layers.push(Box::new(layer));
         self
     }
 
-    /// Append a layer to an existing model.
+    /// Append a layer in place.
     pub fn push(&mut self, layer: impl Module + 'static) {
         self.layers.push(Box::new(layer));
     }

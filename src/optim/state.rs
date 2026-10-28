@@ -1,11 +1,9 @@
 //! An optimizer's internal state, in a form that can be written to disk.
 //!
-//! Saving only the weights is not enough to resume a run. Momentum and Adam's
-//! two moment estimates are what turn a raw gradient into an update, and Adam's
-//! step count drives the bias correction that divides them. Restore the weights
-//! alone and the optimizer restarts at step 1: the correction factor is at its
-//! most aggressive, so the first update after resuming is far larger than it
-//! should be and can undo a great deal of training.
+//! Optimizer state in a form that can be written to disk.
+//!
+//! Weights alone are not a resumable run: Adam's step count drives its bias
+//! correction, and restarting at step 1 makes the first update far too big.
 
 use std::collections::BTreeMap;
 
@@ -13,7 +11,7 @@ use crate::error::{Error, Result};
 use crate::nn::Param;
 use crate::tensor::Tensor;
 
-/// Everything an optimizer needs to carry on exactly where it stopped.
+/// What an optimizer needs to resume where it stopped.
 #[derive(Default)]
 pub struct OptimizerState {
     /// Per-parameter tensors, named `"<slot>/<index>"`.
@@ -30,10 +28,7 @@ impl OptimizerState {
         }
     }
 
-    /// Record one per-parameter series, such as momentum or a moment estimate.
-    ///
-    /// Entries still `None` — parameters that have never received a gradient —
-    /// are left out, and come back as `None`.
+    /// Record one per-parameter series. `None` entries are skipped and come back as `None`.
     pub fn put(&mut self, slot: &str, series: &[Option<Tensor>]) {
         for (index, value) in series.iter().enumerate() {
             if let Some(tensor) = value {
@@ -43,10 +38,8 @@ impl OptimizerState {
         }
     }
 
-    /// Read back a series recorded by [`put`](OptimizerState::put).
-    ///
-    /// `len` is the current parameter count; a mismatch with the saved run is
-    /// reported rather than silently misaligning moments onto the wrong weights.
+    /// Read back a series from [`put`](OptimizerState::put). Errors if the saved
+    /// run had more parameters than `len`.
     pub fn take(&self, slot: &str, len: usize) -> Result<Vec<Option<Tensor>>> {
         let prefix = format!("{slot}/");
         if let Some(name) = self.tensors.keys().find(|k| {
@@ -64,12 +57,8 @@ impl OptimizerState {
     }
 }
 
-/// Move a restored series onto the devices of the parameters it belongs to.
-///
-/// State is stored on the host so a checkpoint is portable between machines. The
-/// optimizer then combines it with live gradients, which sit wherever the model
-/// does — so without this a run resumed onto a GPU would hit a device mismatch on
-/// its first step.
+/// Move restored state onto each parameter's device. It is saved on the host,
+/// so skipping this breaks the first step of a run resumed on a GPU.
 pub fn place(series: Vec<Option<Tensor>>, params: &[Param]) -> Vec<Option<Tensor>> {
     series
         .into_iter()

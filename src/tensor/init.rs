@@ -1,7 +1,4 @@
-//! Ways to make a tensor full of values.
-//!
-//! Everything here builds on the CPU. Chain `.to(device)` to place the result,
-//! or let a layer's `to_device` move its parameters after construction.
+//! Tensor constructors. They build on the CPU, so chain `.to(device)` to place the result.
 
 use crate::rng;
 
@@ -44,17 +41,13 @@ impl Tensor {
         Tensor::from_vec(rng::uniform(shape::numel(shape), lo, hi), shape)
     }
 
-    /// Kaiming (He) uniform — the default for ReLU-family layers.
-    ///
-    /// Bounds are `±√(6 / fan_in)`, which keeps activation variance roughly
-    /// constant through a stack of rectified layers.
+    /// Kaiming (He) uniform, bounds `±√(6 / fan_in)`. For ReLU-family layers.
     pub fn kaiming_uniform(shape: &[usize], fan_in: usize) -> Tensor {
         let bound = (6.0 / fan_in as f32).sqrt();
         Tensor::uniform(shape, -bound, bound)
     }
 
-    /// Xavier (Glorot) uniform — for `tanh`/`sigmoid` layers, where the backward
-    /// variance matters as much as the forward.
+    /// Xavier (Glorot) uniform, for `tanh` and `sigmoid` layers.
     pub fn xavier_uniform(shape: &[usize], fan_in: usize, fan_out: usize) -> Tensor {
         let bound = (6.0 / (fan_in + fan_out) as f32).sqrt();
         Tensor::uniform(shape, -bound, bound)
@@ -88,7 +81,7 @@ impl Tensor {
         Tensor::from_vec(data, &[n, n])
     }
 
-    /// Rows of the identity, selected by `indices` — one-hot targets in `classes` classes.
+    /// One-hot rows for `indices`, `[indices.len(), classes]`.
     pub fn one_hot(indices: &[usize], classes: usize) -> Tensor {
         let mut data = vec![0.0f32; indices.len() * classes];
         for (row, &class) in indices.iter().enumerate() {

@@ -1,10 +1,5 @@
-//! Derivatives of the `im2col` / `col2im` adjoint pair.
-//!
-//! The two operations are transposes of one linear map, so each is the
-//! other's gradient: differentiating the unfold means folding the incoming
-//! gradient, and differentiating the fold means unfolding it. Both rules
-//! delegate to the same shared index maps the forwards use — the adjoint
-//! identity holds by construction, not by keeping two loops in sync.
+//! Derivatives of `im2col` and `col2im`. Each is the other's gradient, and both
+//! use the forward's index maps so they stay exact adjoints.
 
 use crate::autograd::Backward;
 use crate::cuda::kernels;
@@ -12,10 +7,7 @@ use crate::tensor::ops::conv::{fold, unfold, Window};
 use crate::tensor::storage::Storage;
 use crate::tensor::Tensor;
 
-/// Gradient of `im2col`: fold columns back into the image, adding where
-/// windows overlapped. A pixel covered by several windows was copied into
-/// several columns, so its gradient is the sum of theirs; pixels that only
-/// ever landed in padding get nothing.
+/// Gradient of `im2col`: fold the columns back, summing overlaps.
 pub struct Col2ImBackward {
     pub shape: Vec<usize>,
     pub window: Window,
@@ -54,10 +46,7 @@ impl Backward for Col2ImBackward {
     }
 }
 
-/// Gradient of `col2im`: unfold the incoming image gradient back into columns.
-///
-/// Each column entry contributed to exactly one pixel, so its gradient is that
-/// pixel's — which is precisely what `im2col` reads.
+/// Gradient of `col2im`: unfold the image gradient.
 pub struct Im2ColBackward {
     pub window: Window,
 }
