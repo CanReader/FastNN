@@ -160,7 +160,10 @@ fn parse_images(bytes: &[u8]) -> Result<(Vec<f32>, usize)> {
         )));
     }
     Ok((
-        bytes[IMAGE_HEADER..].iter().map(|&b| b as f32 / 255.0).collect(),
+        bytes[IMAGE_HEADER..]
+            .iter()
+            .map(|&b| b as f32 / 255.0)
+            .collect(),
         count,
     ))
 }
@@ -177,7 +180,10 @@ fn parse_labels(bytes: &[u8]) -> Result<(Vec<f32>, usize)> {
             LABEL_HEADER + count
         )));
     }
-    Ok((bytes[LABEL_HEADER..].iter().map(|&b| b as f32).collect(), count))
+    Ok((
+        bytes[LABEL_HEADER..].iter().map(|&b| b as f32).collect(),
+        count,
+    ))
 }
 
 /// Read `words` big-endian u32s and check the magic number.

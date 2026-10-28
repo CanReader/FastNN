@@ -50,6 +50,94 @@ fn train_steps(
     }
 }
 
+fn assert_invalid_float_indices(mut consume: impl FnMut(f32)) {
+    let upper = (usize::MAX as f64 + 1.0) as f32;
+    let mut failures = Vec::new();
+    for value in [
+        -1.0,
+        f32::NAN,
+        2.5,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        upper,
+        f32::MAX,
+    ] {
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| consume(value)));
+        match caught {
+            Ok(()) => failures.push(format!("accepted {value}")),
+            Err(payload) => {
+                let message = payload
+                    .downcast_ref::<String>()
+                    .map(String::as_str)
+                    .or_else(|| payload.downcast_ref::<&str>().copied())
+                    .unwrap_or("non-string panic");
+                if !message.contains(&value.to_string()) {
+                    failures.push(format!("{value} missing from panic: {message}"));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("; "));
+}
+
+#[test]
+fn float_indices_embedding_rejects_invalid_values() {
+    let embedding = Embedding::new(4, 2);
+    assert_invalid_float_indices(|value| {
+        embedding.forward(&Tensor::from_vec(vec![value], &[1]));
+    });
+}
+
+#[test]
+fn float_indices_labels_reject_invalid_values() {
+    assert_invalid_float_indices(|value| {
+        Batch {
+            inputs: Tensor::zeros(&[1, 1]),
+            targets: Tensor::from_vec(vec![value], &[1]),
+        }
+        .labels();
+    });
+}
+
+#[test]
+fn float_indices_embedding_preserves_valid_ids() {
+    let embedding = Embedding::new(4, 2);
+    let ids = Tensor::from_vec(vec![0.0, 3.0, -0.0, 2.0], &[2, 2]);
+    let output = embedding.forward(&ids);
+    assert_eq!(output.shape(), &[2, 2, 2]);
+    assert_eq!(output.to_vec(), embedding.lookup(&[0, 3, 0, 2]).to_vec());
+}
+
+#[test]
+fn float_indices_labels_preserve_valid_ids() {
+    let batch = Batch {
+        inputs: Tensor::zeros(&[4, 1]),
+        targets: Tensor::from_vec(vec![0.0, 3.0, -0.0, 2.0], &[4]),
+    };
+    assert_eq!(batch.labels(), vec![0, 3, 0, 2]);
+}
+
+#[test]
+#[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
+fn float_indices_labels_accept_large_integers() {
+    let batch = Batch {
+        inputs: Tensor::zeros(&[1, 1]),
+        targets: Tensor::from_vec(vec![16_777_218.0], &[1]),
+    };
+    assert_eq!(batch.labels(), vec![16_777_218]);
+}
+
+#[test]
+fn float_indices_labels_accept_largest_fitting_integer() {
+    let upper = (usize::MAX as f64 + 1.0) as f32;
+    let largest = f32::from_bits(upper.to_bits() - 1).floor();
+    let batch = Batch {
+        inputs: Tensor::zeros(&[1, 1]),
+        targets: Tensor::from_vec(vec![largest], &[1]),
+    };
+    assert_eq!(batch.labels(), vec![largest as usize]);
+}
+
 #[test]
 fn resuming_matches_training_straight_through() {
     let file = TempFile::new("resume");

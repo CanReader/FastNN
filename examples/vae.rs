@@ -108,12 +108,18 @@ fn main() {
     }
 
     // Decode from the prior; a radius near 1 means it learned the circle.
-    let generated =
-        no_grad(|| model.decoder.forward(&Tensor::randn(&[PRIOR_SAMPLES, LATENT]))).to_vec();
+    let generated = no_grad(|| {
+        model
+            .decoder
+            .forward(&Tensor::randn(&[PRIOR_SAMPLES, LATENT]))
+    })
+    .to_vec();
     let mean_radius: f32 = generated
         .chunks(2)
         .map(|p| (p[0] * p[0] + p[1] * p[1]).sqrt())
         .sum::<f32>()
         / PRIOR_SAMPLES as f32;
-    println!("\nmean radius of {PRIOR_SAMPLES} prior samples: {mean_radius:.3}  (data lives at 1.0)");
+    println!(
+        "\nmean radius of {PRIOR_SAMPLES} prior samples: {mean_radius:.3}  (data lives at 1.0)"
+    );
 }

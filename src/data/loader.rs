@@ -1,7 +1,7 @@
 //! Batching and shuffling.
 
 use crate::rng;
-use crate::tensor::{Device, Tensor};
+use crate::tensor::{ops::index::index_from_f32, Device, Tensor};
 
 use super::dataset::Dataset;
 
@@ -22,8 +22,14 @@ impl Batch {
     }
 
     /// Targets as class indices, for [`cross_entropy`](crate::nn::cross_entropy).
+    ///
+    /// Panics if a target is not a finite, non-negative integer that fits in `usize`.
     pub fn labels(&self) -> Vec<usize> {
-        self.targets.to_vec().iter().map(|&v| v as usize).collect()
+        self.targets
+            .to_vec()
+            .into_iter()
+            .map(index_from_f32)
+            .collect()
     }
 }
 

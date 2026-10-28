@@ -3,8 +3,12 @@
 FastNN is meant to be read and edited: every file is one idea and none are long.
 Most of this is about keeping it that way.
 
-For anything bigger than a bug fix, open an issue first. Issues labelled
-`good first issue` are a good place to start.
+For anything bigger than a bug fix, open an issue first. `good first issue` is a
+good place to start, `help wanted` is for bigger work, mostly performance.
+Comment on an issue before you start so two people don't write the same fix.
+
+During Hacktoberfest the [pinned issue](https://github.com/CanReader/FastNN/issues/56)
+explains what gets the `hacktoberfest-accepted` label.
 
 ## Setup
 

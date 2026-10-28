@@ -5,6 +5,18 @@ use crate::cuda::kernels;
 use crate::tensor::storage::Storage;
 use crate::tensor::Tensor;
 
+/// Convert a float index without truncating or saturating it.
+pub(crate) fn index_from_f32(value: f32) -> usize {
+    assert!(
+        value.is_finite()
+            && value >= 0.0
+            && value.fract() == 0.0
+            && f64::from(value) < usize::MAX as f64 + 1.0,
+        "invalid index {value}: expected a finite, non-negative integer that fits usize"
+    );
+    value as usize
+}
+
 impl Tensor {
     /// Gather rows `ids` from a `[rows, cols]` table. Repeated ids are fine.
     pub fn index_select(&self, ids: &[usize]) -> Tensor {

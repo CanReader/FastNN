@@ -110,6 +110,10 @@ curl -o shakespeare.txt \
 cargo run --release --example char_lm -- shakespeare.txt
 ```
 
+Want to see it without writing any code? [fastnn-visualizer](https://github.com/CanReader/fastnn-visualizer)
+trains an MLP on MNIST with FastNN and lets you draw a digit in the browser
+and watch the network light up as it predicts.
+
 ### Prebuilt binaries
 
 Each [release](https://github.com/CanReader/FastNN/releases) has the examples
@@ -370,6 +374,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Issues labelled
 [`good first issue`](https://github.com/CanReader/FastNN/labels/good%20first%20issue)
 are a good place to start. Report security problems privately, see
 [SECURITY.md](SECURITY.md).
+
+During Hacktoberfest, read the [pinned issue](https://github.com/CanReader/FastNN/issues/56)
+first. It explains how claiming an issue works and what counts.
+
+If FastNN is useful to you, a star helps other people find it.
 
 ## License
 

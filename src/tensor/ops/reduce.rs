@@ -99,7 +99,10 @@ impl Tensor {
     }
 
     /// Population variance of every element.
+    ///
+    /// Panics if the tensor is empty.
     pub fn variance(&self) -> f32 {
+        assert!(self.numel() > 0, "variance() of an empty tensor");
         let data = self.to_vec();
         let mean = data.iter().sum::<f32>() / data.len() as f32;
         data.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / data.len() as f32
@@ -131,4 +134,36 @@ impl Tensor {
 
 fn single(buf: crate::cuda::CudaBuffer) -> f32 {
     buf.to_vec().expect("cuda download")[0]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[should_panic(expected = "variance() of an empty tensor")]
+    fn variance_rejects_an_empty_vector() {
+        let tensor = Tensor::from_vec(vec![], &[0]);
+        assert_eq!(tensor.numel(), 0);
+        tensor.variance();
+    }
+
+    #[test]
+    #[should_panic(expected = "variance() of an empty tensor")]
+    fn variance_rejects_a_zero_sized_dimension() {
+        let tensor = Tensor::from_vec(vec![], &[2, 0]);
+        assert_eq!(tensor.numel(), 0);
+        tensor.variance();
+    }
+
+    #[test]
+    fn variance_of_a_singleton_is_zero() {
+        assert_eq!(Tensor::from_vec(vec![3.0], &[1]).variance(), 0.0);
+    }
+
+    #[test]
+    fn variance_uses_the_population_denominator() {
+        let tensor = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2]);
+        assert_eq!(tensor.variance(), 1.25);
+    }
 }
