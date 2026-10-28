@@ -18,7 +18,6 @@ fn build_cpu_stubs() {
 }
 
 fn build_cuda() {
-    // Find CUDA toolkit
     let cuda_path = env::var("CUDA_PATH")
         .or_else(|_| env::var("CUDA_HOME"))
         .unwrap_or_else(|_| {
@@ -36,7 +35,6 @@ fn build_cuda() {
         PathBuf::from(&cuda_path).join("lib64")
     };
 
-    // Compile CUDA kernels using cc with nvcc
     let mut build = cc::Build::new();
     build
         .cuda(true)
@@ -53,9 +51,7 @@ fn build_cuda() {
         .include(&cuda_include)
         .file("cuda/kernels.cu");
 
-    // nvcc rejects host compilers newer than it knows. FASTNN_NVCC_CCBIN picks
-    // one explicitly; otherwise fall back to g++-15 when the system g++ is too
-    // new and g++-15 is around.
+    // nvcc rejects host compilers newer than it knows. Take FASTNN_NVCC_CCBIN, else g++-15 if installed.
     println!("cargo:rerun-if-env-changed=FASTNN_NVCC_CCBIN");
     if let Ok(ccbin) = env::var("FASTNN_NVCC_CCBIN") {
         build.flag(format!("-ccbin={ccbin}"));
@@ -69,7 +65,6 @@ fn build_cuda() {
 
     build.compile("fastnn_cuda_kernels");
 
-    // Link CUDA runtime and libraries
     println!("cargo:rustc-link-search=native={}", cuda_lib.display());
     println!("cargo:rustc-link-lib=dylib=cudart");
     println!("cargo:rustc-link-lib=dylib=cublas");

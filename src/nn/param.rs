@@ -1,18 +1,6 @@
-//! Shared handles to the tensors a model owns.
-//!
-//! A [`Param`] is a slot, not a value. Cloning one gives a second handle to the
-//! same weight and the same gradient, which is why `Adam::new(model.parameters())`
-//! works: the optimizer holds its own handles and updates them in place, with no
-//! borrow of the model at step time.
-//!
-//! ```text
-//!   Linear { weight: Param ─┐
-//!                           ├─► Arc<RwLock<Tensor>>   the weight
-//!   Adam   { params: [Param]┘   Arc<Mutex<Option<Tensor>>>   its gradient
-//! ```
-//!
-//! [`Buffer`] is the same sharing without a gradient: state that persists and is
-//! checkpointed but is not learned, such as batch-norm running statistics.
+//! Shared handles to a model's tensors. Cloning a [`Param`] gives another handle
+//! to the same weight and gradient, which is how an optimizer updates a model
+//! it does not borrow. [`Buffer`] is the same without a gradient.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
@@ -39,12 +27,8 @@ impl Param {
         }
     }
 
-    /// This parameter as a tensor, for use in a forward pass.
-    ///
-    /// Normally a graph leaf, so gradients reaching it land in this parameter's
-    /// slot. While frozen it comes back detached instead — the backward pass then
-    /// stops at this point on its own, costing nothing to compute a gradient that
-    /// would only be discarded.
+    /// The parameter as a graph leaf for a forward pass. Detached while frozen,
+    /// so backward never computes a gradient for it.
     pub fn tensor(&self) -> Tensor {
         let value = self.value.read().unwrap();
         if !self.is_trainable() {
@@ -58,17 +42,13 @@ impl Param {
         )
     }
 
-    /// Stop training this parameter. Optimizers skip it and no gradient is
-    /// computed for it at all.
-    ///
-    /// The usual reason is transfer learning: freeze a pretrained backbone and
-    /// train only the new head on top.
+    /// Stop training this parameter.
     pub fn freeze(&self) {
         self.trainable.store(false, Ordering::Relaxed);
         self.grad.clear();
     }
 
-    /// Resume training this parameter.
+    /// Undo [`freeze`](Param::freeze).
     pub fn unfreeze(&self) {
         self.trainable.store(true, Ordering::Relaxed);
     }
@@ -83,7 +63,7 @@ impl Param {
         self.value.read().unwrap().detach()
     }
 
-    /// Replace the value. Every handle sees the change; the gradient is untouched.
+    /// Replace the value for every handle. Shape must not change.
     pub fn set_value(&self, value: Tensor) {
         assert_eq!(
             value.shape(),
@@ -103,15 +83,13 @@ impl Param {
         self.grad.clear();
     }
 
-    /// Replace the gradient outright. Gradient clipping and custom optimizers
-    /// use this; the backward pass itself accumulates instead.
+    /// Replace the gradient, for clipping and custom optimizers.
     pub fn set_grad(&self, grad: Tensor) {
         self.grad.clear();
         self.grad.accumulate(grad.detach());
     }
 
-    /// Move the value onto `device` in place. The gradient is dropped, since a
-    /// stale gradient on the old device could never be applied.
+    /// Move the value to `device`, dropping the gradient.
     pub fn to_device(&self, device: Device) {
         let mut value = self.value.write().unwrap();
         if value.device() != device {
@@ -139,7 +117,7 @@ impl std::fmt::Debug for Param {
     }
 }
 
-/// Persistent state that is saved and restored but never learned.
+/// State that is checkpointed but not learned.
 #[derive(Clone)]
 pub struct Buffer {
     value: Arc<RwLock<Tensor>>,

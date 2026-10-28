@@ -1,7 +1,4 @@
-//! Datasets and batching.
-//!
-//! Implement [`Dataset`] for your own data, then wrap it in a [`DataLoader`] to
-//! get shuffling, batching, and device placement.
+//! Datasets, batching, and MNIST.
 
 pub mod dataset;
 pub mod loader;

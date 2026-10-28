@@ -4,15 +4,10 @@ use crate::tensor::{Device, Tensor};
 
 use super::param::{Buffer, Param};
 
-/// A piece of a model.
+/// A piece of a model. Only [`forward`](Module::forward) is required, plus
+/// [`named_parameters`](Module::named_parameters) if it has weights.
 ///
-/// Only [`forward`](Module::forward) is required. A layer with weights also
-/// implements [`named_parameters`](Module::named_parameters); everything else —
-/// parameter counting, device placement, gradient zeroing — falls out of that.
-///
-/// Every method takes `&self`. Parameters carry their own interior mutability,
-/// so a container can recurse into its children without threading `&mut` through
-/// the whole tree, and `model.eval()` needs no `mut` binding.
+/// Everything takes `&self`, since parameters have interior mutability.
 ///
 /// ```
 /// use fastnn::prelude::*;
@@ -32,9 +27,7 @@ pub trait Module: Send + Sync {
     /// Transform an input into an output.
     fn forward(&self, input: &Tensor) -> Tensor;
 
-    /// This module's learnable tensors, with names like `"weight"` or `"2.bias"`.
-    ///
-    /// A container prefixes its children's names; a leaf layer returns its own.
+    /// Learnable tensors, named like `"weight"` or `"2.bias"`.
     fn named_parameters(&self) -> Vec<(String, Param)> {
         Vec::new()
     }
@@ -44,15 +37,11 @@ pub trait Module: Send + Sync {
         Vec::new()
     }
 
-    /// Switch between training and inference behaviour.
-    ///
-    /// Only [`Dropout`](super::Dropout) and [`BatchNorm2d`](super::BatchNorm2d)
-    /// act on this; containers pass it down.
+    /// Switch between training and inference behaviour. Only
+    /// [`Dropout`](super::Dropout) and [`BatchNorm2d`](super::BatchNorm2d) act on it.
     fn set_training(&self, _training: bool) {}
 
-    // ── Provided ─────────────────────────────────────────────────────────────
-
-    /// Every learnable tensor. Hand this straight to an optimizer.
+    /// Every learnable tensor, ready to hand to an optimizer.
     fn parameters(&self) -> Vec<Param> {
         self.named_parameters()
             .into_iter()
@@ -75,17 +64,14 @@ pub trait Module: Send + Sync {
         }
     }
 
-    /// Stop training every parameter in this module.
-    ///
-    /// Freeze a pretrained backbone, leave the head trainable, and the optimizer
-    /// updates only the head — the backward pass does not even compute the rest.
+    /// Freeze every parameter.
     fn freeze(&self) {
         for (_, p) in self.named_parameters() {
             p.freeze();
         }
     }
 
-    /// Resume training every parameter in this module.
+    /// Unfreeze every parameter.
     fn unfreeze(&self) {
         for (_, p) in self.named_parameters() {
             p.unfreeze();
@@ -107,18 +93,18 @@ pub trait Module: Send + Sync {
         }
     }
 
-    /// Enable training behaviour (dropout active, batch-norm using batch statistics).
+    /// Training mode.
     fn train(&self) {
         self.set_training(true);
     }
 
-    /// Enable inference behaviour.
+    /// Inference mode.
     fn eval(&self) {
         self.set_training(false);
     }
 }
 
-/// Prefix each name with `scope`, for a container building parameter paths.
+/// Prefix each name with `scope`.
 ///
 /// ```
 /// # use fastnn::prelude::*;

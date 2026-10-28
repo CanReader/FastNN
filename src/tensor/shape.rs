@@ -1,8 +1,5 @@
-//! Shape arithmetic: strides, broadcasting, and flat-index math.
-//!
-//! Tensors are always C-contiguous, so strides are derived from the shape rather
-//! than stored as an independent source of truth. Every view op (`reshape`,
-//! `permute`, `expand`) materialises a new contiguous buffer.
+//! Strides, broadcasting and index arithmetic. Tensors are always contiguous, so
+//! strides are derived from the shape instead of stored.
 
 /// Row-major strides for `shape`, in elements.
 pub fn strides_for(shape: &[usize]) -> Vec<usize> {
@@ -18,9 +15,7 @@ pub fn numel(shape: &[usize]) -> usize {
     shape.iter().product()
 }
 
-/// Resolve a shape that may contain a single `-1` placeholder against `numel`.
-///
-/// Panics if more than one dimension is `-1` or the element count does not divide.
+/// Fill in a single `-1` placeholder so the shape holds `numel` elements.
 pub fn resolve(shape: &[i64], numel: usize) -> Vec<usize> {
     let mut placeholder = None;
     let mut known = 1usize;
@@ -60,9 +55,7 @@ pub fn resolve(shape: &[i64], numel: usize) -> Vec<usize> {
     }
 }
 
-/// The shape two operands broadcast to, following NumPy rules.
-///
-/// Panics if the shapes are incompatible.
+/// The shape two operands broadcast to, NumPy style.
 pub fn broadcast(a: &[usize], b: &[usize]) -> Vec<usize> {
     let ndim = a.len().max(b.len());
     (0..ndim)
@@ -85,8 +78,7 @@ pub fn pad_left(shape: &[usize], ndim: usize) -> Vec<usize> {
     out
 }
 
-/// Strides for reading `shape` (already padded to `out.len()`) while broadcasting
-/// to `out`. Broadcast dimensions get stride 0 so every output index reads slot 0.
+/// Strides for reading the padded `shape` as `out`. Stretched dims get stride 0.
 pub fn broadcast_strides(shape: &[usize], out: &[usize]) -> Vec<usize> {
     debug_assert_eq!(shape.len(), out.len());
     strides_for(shape)
@@ -97,8 +89,6 @@ pub fn broadcast_strides(shape: &[usize], out: &[usize]) -> Vec<usize> {
 }
 
 /// Split `shape` around `axis` into (product before, size at, product after).
-///
-/// Most reductions and axis-wise scatters reduce to a triple loop over these.
 pub fn split_at_axis(shape: &[usize], axis: usize) -> (usize, usize, usize) {
     assert!(
         axis < shape.len(),

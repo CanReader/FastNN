@@ -1,23 +1,17 @@
-//! Every raw declaration of a symbol in `cuda/kernels.cu`, in one place.
+//! Raw `extern "C"` declarations for `cuda/kernels.cu`. Only [`super::kernels`] calls these.
 //!
-//! Nothing outside this module calls these directly — [`super::kernels`] wraps
-//! them in safe, `Result`-returning functions. When you add a kernel to
-//! `kernels.cu`, add its signature here and a wrapper there.
-//!
-//! Every function returns `0` on success and non-zero on failure.
+//! Every function returns 0 on success.
 
 #![allow(dead_code)]
 
 use std::ffi::c_int;
 
 extern "C" {
-    // ── Context ──────────────────────────────────────────────────────────────
     pub fn fastnn_cuda_init(device_id: c_int) -> c_int;
     pub fn fastnn_cuda_device_count() -> c_int;
     pub fn fastnn_cuda_synchronize() -> c_int;
     pub fn fastnn_cuda_get_memory_info(free: *mut usize, total: *mut usize);
 
-    // ── Memory ───────────────────────────────────────────────────────────────
     pub fn fastnn_cuda_malloc(ptr: *mut *mut f32, bytes: usize) -> c_int;
     pub fn fastnn_cuda_free(ptr: *mut f32) -> c_int;
     pub fn fastnn_cuda_memcpy_h2d(dst: *mut f32, src: *const f32, bytes: usize) -> c_int;
@@ -26,7 +20,6 @@ extern "C" {
     pub fn fastnn_cuda_memset(ptr: *mut f32, value: c_int, bytes: usize) -> c_int;
     pub fn fastnn_cuda_fill(data: *mut f32, value: f32, n: usize) -> c_int;
 
-    // ── Element-wise: binary, scalar, unary ──────────────────────────────────
     pub fn fastnn_cuda_add(a: *const f32, b: *const f32, out: *mut f32, n: usize) -> c_int;
     pub fn fastnn_cuda_sub(a: *const f32, b: *const f32, out: *mut f32, n: usize) -> c_int;
     pub fn fastnn_cuda_mul(a: *const f32, b: *const f32, out: *mut f32, n: usize) -> c_int;
@@ -43,7 +36,6 @@ extern "C" {
     pub fn fastnn_cuda_log(a: *const f32, out: *mut f32, n: usize) -> c_int;
     pub fn fastnn_cuda_clamp(a: *const f32, lo: f32, hi: f32, out: *mut f32, n: usize) -> c_int;
 
-    // ── Activations ──────────────────────────────────────────────────────────
     pub fn fastnn_cuda_relu(x: *const f32, out: *mut f32, n: usize) -> c_int;
     pub fn fastnn_cuda_relu_backward(
         grad: *const f32,
@@ -81,7 +73,6 @@ extern "C" {
     ) -> c_int;
     pub fn fastnn_cuda_leaky_relu(x: *const f32, slope: f32, out: *mut f32, n: usize) -> c_int;
 
-    // ── Softmax (over the last dimension) ────────────────────────────────────
     pub fn fastnn_cuda_softmax(x: *const f32, out: *mut f32, rows: c_int, cols: c_int) -> c_int;
     pub fn fastnn_cuda_softmax_backward(
         grad: *const f32,
@@ -93,7 +84,6 @@ extern "C" {
     pub fn fastnn_cuda_log_softmax(x: *const f32, out: *mut f32, rows: c_int, cols: c_int)
         -> c_int;
 
-    // ── LayerNorm (fused; saves mean and 1/std for the backward pass) ────────
     pub fn fastnn_cuda_layer_norm_forward(
         x: *const f32,
         gamma: *const f32,
@@ -118,7 +108,6 @@ extern "C" {
         cols: c_int,
     ) -> c_int;
 
-    // ── Embedding ────────────────────────────────────────────────────────────
     pub fn fastnn_cuda_embedding_forward(
         ids: *const c_int,
         weight: *const f32,
@@ -135,7 +124,6 @@ extern "C" {
         vocab: c_int,
     ) -> c_int;
 
-    // ── Convolution lowering ─────────────────────────────────────────────────
     pub fn fastnn_cuda_im2col(
         input: *const f32,
         cols: *mut f32,
@@ -173,7 +161,6 @@ extern "C" {
         out_w: c_int,
     ) -> c_int;
 
-    // ── GEMM (cuBLAS). `nt`/`tn` transpose in place, with no staging buffer. ─
     pub fn fastnn_cuda_matmul(
         a: *const f32,
         b: *const f32,
@@ -233,7 +220,6 @@ extern "C" {
         batch: c_int,
     ) -> c_int;
 
-    // ── Layout ───────────────────────────────────────────────────────────────
     pub fn fastnn_cuda_transpose(x: *const f32, out: *mut f32, rows: c_int, cols: c_int) -> c_int;
     pub fn fastnn_cuda_transpose_batched(
         x: *const f32,
@@ -255,7 +241,6 @@ extern "C" {
         numel: c_int,
     ) -> c_int;
 
-    // ── Reductions ───────────────────────────────────────────────────────────
     pub fn fastnn_cuda_sum(x: *const f32, out: *mut f32, n: usize) -> c_int;
     pub fn fastnn_cuda_mean(x: *const f32, out: *mut f32, n: usize) -> c_int;
     pub fn fastnn_cuda_max(x: *const f32, out: *mut f32, n: usize) -> c_int;

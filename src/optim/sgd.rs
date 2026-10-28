@@ -7,7 +7,7 @@ use crate::tensor::Tensor;
 use super::state::place;
 use super::{Optimizer, OptimizerState};
 
-/// Plain SGD, optionally with momentum, Nesterov lookahead, and weight decay.
+/// SGD with optional momentum, Nesterov, and weight decay.
 ///
 /// ```
 /// # use fastnn::prelude::*;
@@ -41,26 +41,25 @@ impl SGD {
         }
     }
 
-    /// Carry a fraction of the previous update forward. 0.9 is the usual choice.
+    /// Fraction of the previous update carried forward.
     pub fn momentum(mut self, momentum: f32) -> SGD {
         self.momentum = momentum;
         self
     }
 
-    /// Damp how much of each new gradient enters the velocity.
+    /// Damping on each new gradient entering the velocity.
     pub fn dampening(mut self, dampening: f32) -> SGD {
         self.dampening = dampening;
         self
     }
 
-    /// L2 penalty, folded into the gradient.
+    /// L2 penalty added to the gradient.
     pub fn weight_decay(mut self, decay: f32) -> SGD {
         self.weight_decay = decay;
         self
     }
 
-    /// Apply the gradient at the point momentum is heading toward rather than
-    /// where it is now — a half-step of foresight that damps overshoot.
+    /// Use Nesterov momentum.
     pub fn nesterov(mut self, nesterov: bool) -> SGD {
         self.nesterov = nesterov;
         self
@@ -77,10 +76,11 @@ impl Optimizer for SGD {
             let Some(grad) = param.grad() else { continue };
             let value = param.value();
 
-            let mut grad = grad;
-            if self.weight_decay != 0.0 {
-                grad = grad.add(&value.mul_scalar(self.weight_decay));
-            }
+            let grad = if self.weight_decay == 0.0 {
+                grad
+            } else {
+                grad.add(&value.mul_scalar(self.weight_decay))
+            };
 
             let update = if self.momentum == 0.0 {
                 grad

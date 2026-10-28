@@ -1,7 +1,4 @@
-//! Derivatives of the rearranging ops.
-//!
-//! Every one of these is the inverse rearrangement: reshape back, permute back,
-//! sum where elements were duplicated, pad with zeros where they were dropped.
+//! Derivatives of the rearranging ops, each the inverse rearrangement.
 
 use crate::autograd::Backward;
 use crate::tensor::shape;
@@ -42,7 +39,7 @@ impl Backward for PermuteBackward {
     }
 }
 
-/// Expanding copied one element to many, so its gradient is their sum.
+/// The gradient of a copy is the sum over the copies.
 pub struct ExpandBackward {
     pub shape: Vec<usize>,
 }
@@ -56,7 +53,7 @@ impl Backward for ExpandBackward {
     }
 }
 
-/// Elements outside the slice did not reach the output, so they get zero.
+/// Elements outside the slice get zero.
 pub struct NarrowBackward {
     pub shape: Vec<usize>,
     pub axis: usize,

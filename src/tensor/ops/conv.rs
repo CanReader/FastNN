@@ -1,21 +1,12 @@
-//! `im2col` and `col2im`, the pair that turns convolution into matrix algebra.
-//!
-//! Unfolding each sliding window into a column lets [`Conv2d`](crate::nn::Conv2d)
-//! be `weight · columns`, so it inherits cuBLAS on the GPU and a ready-made
-//! derivative from [`matmul`](super::matmul). `col2im` is the exact adjoint —
-//! the transpose of the same linear map — which makes it both `im2col`'s
-//! gradient and the forward pass of transposed convolution: the two operations
-//! are each other's backward rule.
+//! `im2col` and `col2im`, which turn convolution into a matmul. They are exact
+//! adjoints, so each is the other's backward rule.
 
 use crate::autograd::ops::conv::{Col2ImBackward, Im2ColBackward};
 use crate::cuda::kernels;
 use crate::tensor::storage::Storage;
 use crate::tensor::Tensor;
 
-/// The numbers that describe a 2-D sliding window.
-///
-/// With dilation `d`, kernel tap `k` reads offset `k·d` — the kernel's
-/// footprint stretches to `(k−1)·d + 1` pixels without adding weights.
+/// A 2-D sliding window. Dilation `d` spreads the taps to `(k-1)·d + 1` pixels.
 #[derive(Clone, Copy, Debug)]
 pub struct Window {
     pub kernel: (usize, usize),
@@ -25,7 +16,7 @@ pub struct Window {
 }
 
 impl Window {
-    /// A square window with the same value on both axes.
+    /// Same kernel, stride and padding on both axes.
     pub fn square(kernel: usize, stride: usize, padding: usize) -> Window {
         Window {
             kernel: (kernel, kernel),
@@ -42,7 +33,6 @@ impl Window {
         self
     }
 
-    /// How many pixels the kernel spans along one axis: `(k−1)·d + 1`.
     fn span(kernel: usize, dilation: usize) -> usize {
         (kernel - 1) * dilation + 1
     }
@@ -75,8 +65,7 @@ impl Window {
         )
     }
 
-    /// Source pixel for output position `out` and kernel tap `k`, or `None`
-    /// if it falls in the padding.
+    /// Source pixel for output `out` and tap `k`, `None` in the padding.
     fn source(
         out: usize,
         k: usize,
@@ -90,11 +79,8 @@ impl Window {
     }
 }
 
-/// Unfold `[N, C, H, W]` image data into `[N, C·kh·kw, positions]` columns.
-///
-/// Shared by the `im2col` forward and the `col2im` backward — the adjoint pair
-/// must use the same index map, and having it once makes that a fact rather
-/// than a discipline.
+/// `[N, C, H, W]` to `[N, C·kh·kw, positions]`. `fold` is its adjoint, and both
+/// share `Window::source` so the index maps cannot drift apart.
 pub(crate) fn unfold(src: &[f32], shape: &[usize], window: Window) -> Vec<f32> {
     let (n, c, h, w) = (shape[0], shape[1], shape[2], shape[3]);
     let (kh, kw) = window.kernel;
@@ -141,9 +127,7 @@ pub(crate) fn unfold(src: &[f32], shape: &[usize], window: Window) -> Vec<f32> {
     cols
 }
 
-/// Fold `[N, C·kh·kw, positions]` columns back into `[N, C, H, W]`, *adding*
-/// where windows overlapped — a pixel copied into several columns gets the sum
-/// of their values back. The other half of the adjoint pair.
+/// Columns back to an image, adding where windows overlap.
 pub(crate) fn fold(cols: &[f32], shape: &[usize], window: Window) -> Vec<f32> {
     let (n, c, h, w) = (shape[0], shape[1], shape[2], shape[3]);
     let (kh, kw) = window.kernel;
@@ -191,11 +175,7 @@ pub(crate) fn fold(cols: &[f32], shape: &[usize], window: Window) -> Vec<f32> {
 }
 
 impl Tensor {
-    /// Unfold `[N, C, H, W]` into `[N, C·kh·kw, out_h·out_w]`.
-    ///
-    /// Column `l` holds every input pixel that feeds output pixel `l`, so a
-    /// `[out_channels, C·kh·kw]` weight matrix times these columns is the
-    /// convolution.
+    /// Unfold `[N, C, H, W]` into `[N, C·kh·kw, out_h·out_w]`, so conv is a weight matmul.
     pub fn im2col(&self, window: Window) -> Tensor {
         assert_eq!(
             self.ndim(),
@@ -241,12 +221,8 @@ impl Tensor {
         })
     }
 
-    /// Fold `[N, C·kh·kw, positions]` columns into a `[N, C, height, width]`
-    /// image, summing where windows overlap — the adjoint of [`im2col`](Self::im2col).
-    ///
-    /// This is the forward pass of transposed convolution: what `im2col`
-    /// gathers, `col2im` scatters back. Its gradient is therefore `im2col`
-    /// itself.
+    /// Fold columns into a `[N, C, height, width]` image, summing overlaps. The
+    /// adjoint of [`im2col`](Self::im2col) and the forward of transposed conv.
     pub fn col2im(&self, window: Window, size: (usize, usize)) -> Tensor {
         assert_eq!(
             self.ndim(),

@@ -1,10 +1,27 @@
-//! End-to-end convergence: every major layer family, trained until it works.
-//!
-//! `gradcheck` proves each derivative in isolation; these prove the pieces
-//! compose into models that actually learn. Each case is deliberately tiny so
-//! the whole file runs in seconds even in a debug build.
+//! Tiny models of each layer family, trained until they fit.
 
 use fastnn::prelude::*;
+
+/// Steps until the loss is under `target` or `steps` run out, returns the last loss.
+fn train_until(
+    opt: &mut dyn Optimizer,
+    steps: usize,
+    target: f32,
+    mut compute_loss: impl FnMut() -> Tensor,
+) -> f32 {
+    let mut value = f32::MAX;
+    for _ in 0..steps {
+        let loss = compute_loss();
+        opt.zero_grad();
+        loss.backward();
+        opt.step();
+        value = loss.item();
+        if value < target {
+            break;
+        }
+    }
+    value
+}
 
 #[test]
 fn mlp_converges_on_xor() {
@@ -18,17 +35,9 @@ fn mlp_converges_on_xor() {
         .add(Linear::new(8, 2));
     let mut opt = Adam::new(model.parameters(), 5e-2);
 
-    let mut loss_value = f32::MAX;
-    for _ in 0..1000 {
-        let loss = cross_entropy(&model.forward(&inputs), &targets);
-        opt.zero_grad();
-        loss.backward();
-        opt.step();
-        loss_value = loss.item();
-        if loss_value < 0.01 {
-            break;
-        }
-    }
+    let loss_value = train_until(&mut opt, 1000, 0.01, || {
+        cross_entropy(&model.forward(&inputs), &targets)
+    });
     assert!(
         loss_value < 0.01,
         "xor did not converge: final loss {loss_value}"
@@ -38,7 +47,7 @@ fn mlp_converges_on_xor() {
 #[test]
 fn linear_regression_recovers_slope_and_intercept() {
     manual_seed(4);
-    // y = 2x + 1, no noise: the model should recover both numbers nearly exactly.
+    // y = 2x + 1 with no noise.
     let xs: Vec<f32> = (0..32).map(|i| i as f32 / 16.0 - 1.0).collect();
     let ys: Vec<f32> = xs.iter().map(|x| 2.0 * x + 1.0).collect();
     let inputs = Tensor::from_vec(xs, &[32, 1]);
@@ -74,17 +83,9 @@ fn cnn_overfits_a_small_batch() {
         .add(Linear::new(4 * 4 * 4, 10));
     let mut opt = Adam::new(model.parameters(), 1e-2);
 
-    let mut loss_value = f32::MAX;
-    for _ in 0..200 {
-        let loss = cross_entropy(&model.forward(&inputs), &targets);
-        opt.zero_grad();
-        loss.backward();
-        opt.step();
-        loss_value = loss.item();
-        if loss_value < 0.05 {
-            break;
-        }
-    }
+    let loss_value = train_until(&mut opt, 200, 0.05, || {
+        cross_entropy(&model.forward(&inputs), &targets)
+    });
     assert!(
         loss_value < 0.05,
         "cnn did not overfit ten samples: loss {loss_value}"
@@ -94,7 +95,6 @@ fn cnn_overfits_a_small_batch() {
 #[test]
 fn lstm_memorizes_a_short_sequence() {
     manual_seed(6);
-    // One fixed input sequence, one fixed target per step: pure memorization.
     let inputs = Tensor::randn(&[1, 6, 4]);
     let targets = [2usize, 0, 3, 1, 2, 0];
 
@@ -104,19 +104,10 @@ fn lstm_memorizes_a_short_sequence() {
     params.extend(head.parameters());
     let mut opt = Adam::new(params, 1e-2);
 
-    let mut loss_value = f32::MAX;
-    for _ in 0..300 {
-        let hidden = lstm.forward(&inputs);
-        let logits = head.forward(&hidden).reshape(&[6, -1]);
-        let loss = cross_entropy(&logits, &targets);
-        opt.zero_grad();
-        loss.backward();
-        opt.step();
-        loss_value = loss.item();
-        if loss_value < 0.05 {
-            break;
-        }
-    }
+    let loss_value = train_until(&mut opt, 300, 0.05, || {
+        let logits = head.forward(&lstm.forward(&inputs)).reshape(&[6, -1]);
+        cross_entropy(&logits, &targets)
+    });
     assert!(
         loss_value < 0.05,
         "lstm did not memorize: loss {loss_value}"
@@ -130,21 +121,12 @@ fn transformer_overfits_a_small_batch() {
     let target_in = Tensor::randn(&[2, 4, 16]);
     let wanted = Tensor::randn(&[2, 4, 16]);
 
-    // The full encoder-decoder path, driven to overfit a fixed pair.
     let model = Transformer::new(16, 2, 32, 1, 1, 0.0);
     let mut opt = Adam::new(model.parameters(), 3e-3);
 
-    let mut loss_value = f32::MAX;
-    for _ in 0..400 {
-        let loss = mse(&model.run(&source, &target_in), &wanted);
-        opt.zero_grad();
-        loss.backward();
-        opt.step();
-        loss_value = loss.item();
-        if loss_value < 0.05 {
-            break;
-        }
-    }
+    let loss_value = train_until(&mut opt, 400, 0.05, || {
+        mse(&model.run(&source, &target_in), &wanted)
+    });
     assert!(
         loss_value < 0.05,
         "transformer did not overfit: loss {loss_value}"
@@ -160,7 +142,7 @@ fn saved_model_predicts_identically_after_reload() {
         .add(ReLU)
         .add(Linear::new(12, 3));
 
-    // A few steps first, so the weights are not just their initialization.
+    // Train a little so the weights are not just the init.
     let targets = Tensor::zeros(&[4, 3]);
     let mut opt = SGD::new(model.parameters(), 0.01);
     for _ in 0..5 {
@@ -201,9 +183,7 @@ fn clip_grad_value_bounds_every_gradient_element() {
     );
 }
 
-/// Every optimizer, one benchmark: recover a linear map by least squares.
-/// Learning rates are per-optimizer (a shared one would test tuning, not
-/// correctness); each must reach near-zero loss on the same data.
+/// Learning rates are per optimizer, a shared one would test tuning.
 #[test]
 fn every_optimizer_minimizes_least_squares() {
     use fastnn::nn::Param;
@@ -235,17 +215,9 @@ fn every_optimizer_minimizes_least_squares() {
         let model = Linear::new(3, 1);
         let mut opt = make(model.parameters());
 
-        let mut loss_value = f32::MAX;
-        for _ in 0..1500 {
-            let loss = mse(&model.forward(&inputs), &targets);
-            opt.zero_grad();
-            loss.backward();
-            opt.step();
-            loss_value = loss.item();
-            if loss_value < 1e-3 {
-                break;
-            }
-        }
+        let loss_value = train_until(opt.as_mut(), 1500, 1e-3, || {
+            mse(&model.forward(&inputs), &targets)
+        });
         assert!(
             loss_value < 1e-3,
             "{name} failed to converge: loss {loss_value}"

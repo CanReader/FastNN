@@ -1,4 +1,4 @@
-//! Element-wise maths on a single tensor.
+//! Element-wise maths on one tensor.
 
 use crate::autograd::ops::unary::{
     AbsBackward, ClampBackward, ExpBackward, LogBackward, NegBackward, PowBackward, SqrtBackward,

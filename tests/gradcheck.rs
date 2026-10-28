@@ -1,33 +1,18 @@
-//! Finite-difference gradient checks.
-//!
-//! Every backward rule is checked against central differences of its own
-//! forward. This is the safety net for the whole autograd layer: a rule with the
-//! wrong sign, a missing factor, or a forgotten broadcast reduction fails here
-//! rather than showing up later as a model that mysteriously will not converge.
-//!
-//! **Any new `Backward` rule needs a test in this file.**
-//!
-//!     cargo test --no-default-features --test gradcheck
+//! Every backward rule against central differences of its own forward.
+//! A new `Backward` rule needs a case here.
 
-// Test inputs are always passed as a slice. `&[x.clone()]` for a single input
-// costs one clone of a refcounted handle and keeps every call site reading the
-// same way as the multi-input ones.
+// `&[x.clone()]` is a cheap refcount bump and keeps single and multi input calls uniform.
 #![allow(clippy::cloned_ref_to_slice_refs)]
 
 use fastnn::nn::Param;
 use fastnn::prelude::*;
 
-/// Step size for the numeric derivative.
-///
-/// `f32` carries about seven digits and central differences spend roughly half
-/// of them. 1e-3 sits at the bottom of that trade-off: smaller drowns in
-/// rounding, larger starts measuring curvature instead of slope.
+/// Smaller drowns in f32 rounding, larger measures curvature instead of slope.
 const STEP: f32 = 1e-3;
 const TOLERANCE: f32 = 2e-2;
+const NORM_EPS: f32 = 1e-5;
 
-/// Check that `f`'s analytic gradients match its numeric ones at `values`.
-///
-/// `f` must produce a scalar — compose with `.sum()` if it does not.
+/// `f` must return a scalar.
 #[track_caller]
 fn gradcheck(name: &str, values: &[Tensor], f: impl Fn(&[Tensor]) -> Tensor) {
     let params: Vec<Param> = values.iter().map(|v| Param::new(v.clone())).collect();
@@ -71,13 +56,9 @@ fn gradcheck(name: &str, values: &[Tensor], f: impl Fn(&[Tensor]) -> Tensor) {
     }
 }
 
-/// Deterministic, well-spread values in roughly `(-0.9, 0.9)`.
-///
-/// Bounded on purpose. Central differences subtract two nearby loss values, so
-/// if the loss can grow into the thousands the difference loses most of `f32`'s
-/// digits to cancellation and the check fails on its own arithmetic. The golden
-/// ratio spreads the values without repeats, and none land on 0 or ±1, where a
-/// wrong sign or exponent could still give the right answer.
+/// Values kept small on purpose: a loss in the thousands loses most of f32's
+/// digits to cancellation in the difference. The golden ratio avoids repeats
+/// and keeps values off 0 and ±1, where a wrong sign or exponent can still pass.
 fn spread(n: usize, low: f32, high: f32) -> Vec<f32> {
     const GOLDEN: f32 = 0.618_034;
     (0..n)
@@ -89,12 +70,10 @@ fn sample(shape: &[usize]) -> Tensor {
     Tensor::from_vec(spread(shape.iter().product(), -0.9, 0.9), shape)
 }
 
-/// Strictly positive values, for ops undefined at or below zero.
+/// For ops undefined at or below zero.
 fn positive(shape: &[usize]) -> Tensor {
     Tensor::from_vec(spread(shape.iter().product(), 0.3, 1.4), shape)
 }
-
-// ── Arithmetic ───────────────────────────────────────────────────────────────
 
 #[test]
 fn arithmetic() {
@@ -118,8 +97,7 @@ fn arithmetic() {
 
 #[test]
 fn broadcasting_reduces_gradients() {
-    // The [1, 3] operand is stretched over 4 rows, so its gradient must be the
-    // sum of all four contributions — the classic bias-gradient case.
+    // The [1, 3] operand is stretched over 4 rows, so its gradient sums four terms.
     gradcheck("broadcast add", &[sample(&[4, 3]), sample(&[1, 3])], |x| {
         x[0].add(&x[1]).sum()
     });
@@ -130,8 +108,6 @@ fn broadcasting_reduces_gradients() {
         x[0].mul(&x[1]).sum()
     });
 }
-
-// ── Element-wise maths ───────────────────────────────────────────────────────
 
 #[test]
 fn unary_maths() {
@@ -144,12 +120,9 @@ fn unary_maths() {
     gradcheck("sqrt", &[positive(&[2, 3])], |x| x[0].sqrt().sum());
     gradcheck("powf", &[positive(&[2, 3])], |x| x[0].powf(2.5).sum());
     gradcheck("abs", &[x.clone()], |x| x[0].abs().sum());
-    // Bounds sit clear of every sample value: at a clamp boundary the true
-    // derivative jumps, and central differences would straddle both sides.
+    // Bounds stay clear of the samples, the derivative jumps at a clamp edge.
     gradcheck("clamp", &[x], |x| x[0].clamp(-9.0, 9.0).sum());
 }
-
-// ── Activations ──────────────────────────────────────────────────────────────
 
 #[test]
 fn activations() {
@@ -168,8 +141,7 @@ fn softmax_family() {
     let x = sample(&[3, 4]);
     let weights = sample(&[3, 4]);
 
-    // Weighted, not a plain sum: softmax rows total 1 whatever the input, so an
-    // unweighted sum has zero gradient and would pass against any rule at all.
+    // Softmax rows sum to 1, so a plain sum has zero gradient and passes any rule.
     let w = weights.clone();
     gradcheck("softmax", &[x.clone()], move |x| {
         x[0].softmax().mul(&w).sum()
@@ -179,8 +151,6 @@ fn softmax_family() {
         x[0].log_softmax().mul(&w).sum()
     });
 }
-
-// ── Matrix multiplication ────────────────────────────────────────────────────
 
 #[test]
 fn matmul_layouts() {
@@ -208,8 +178,6 @@ fn matmul_batched() {
     );
 }
 
-// ── Reductions ───────────────────────────────────────────────────────────────
-
 #[test]
 fn reductions() {
     let x = sample(&[3, 4]);
@@ -228,8 +196,6 @@ fn reductions() {
     });
 }
 
-// ── Views ────────────────────────────────────────────────────────────────────
-
 #[test]
 fn views() {
     let x = sample(&[2, 3, 4]);
@@ -239,8 +205,7 @@ fn views() {
         x[0].reshape(&[-1]).mul(&w).sum()
     });
 
-    // Weighted so the reordering matters: a plain sum is invariant to any
-    // permutation and would pass even if the inverse were computed wrongly.
+    // A plain sum is blind to permutations.
     let w = sample(&[4, 3, 2]);
     gradcheck("permute", &[x.clone()], move |x| {
         x[0].permute(&[2, 1, 0]).mul(&w).sum()
@@ -263,7 +228,7 @@ fn views() {
 
 #[test]
 fn narrow_and_join() {
-    // Only part of the input reaches the loss; the rest must get exactly zero.
+    // The rest of the input must get exactly zero.
     let w = sample(&[2, 3]);
     gradcheck("narrow", &[sample(&[2, 6])], move |x| {
         x[0].narrow(1, 2, 3).mul(&w).sum()
@@ -280,29 +245,23 @@ fn narrow_and_join() {
     });
 }
 
-// ── Indexing ─────────────────────────────────────────────────────────────────
-
 #[test]
 fn index_select_accumulates_repeats() {
-    // Row 1 is picked twice, so its gradient must be the sum of both lookups.
+    // Row 1 is picked twice.
     let w = sample(&[4, 3]);
     gradcheck("index_select", &[sample(&[5, 3])], move |x| {
         x[0].index_select(&[0, 1, 1, 4]).mul(&w).sum()
     });
 }
 
-// ── Structured ops ───────────────────────────────────────────────────────────
-
 #[test]
 fn convolution() {
-    // [1, 1, 4, 4] with a 2x2 stride-2 window -> [1, 1*2*2 patch, 2*2 positions].
     let w = sample(&[1, 4, 4]);
     gradcheck("im2col", &[sample(&[1, 1, 4, 4])], move |x| {
         x[0].im2col(Window::square(2, 2, 0)).mul(&w).sum()
     });
 
-    // The whole layer end to end: im2col and matmul must compose correctly, and
-    // overlapping windows must accumulate into the same input pixels.
+    // Overlapping windows must accumulate into the same input pixels.
     gradcheck(
         "conv2d",
         &[sample(&[2, 2, 4, 4]), sample(&[3, 2, 3, 3]), sample(&[3])],
@@ -326,7 +285,7 @@ fn pooling() {
         x[0].avg_pool2d(Window::square(2, 2, 0)).mul(&w).sum()
     });
 
-    // Uneven spans: 5 does not divide by 2, so the windows differ in size.
+    // 5 does not divide by 2, so the windows differ in size.
     let w = sample(&[1, 2, 2, 2]);
     gradcheck("adaptive_avg_pool2d", &[sample(&[1, 2, 5, 5])], move |x| {
         x[0].adaptive_avg_pool2d((2, 2)).mul(&w).sum()
@@ -339,7 +298,7 @@ fn normalization() {
     gradcheck(
         "layer_norm",
         &[sample(&[3, 4]), Tensor::ones(&[4]), Tensor::zeros(&[4])],
-        move |x| x[0].layer_norm(&x[1], &x[2], 1e-5).mul(&w).sum(),
+        move |x| x[0].layer_norm(&x[1], &x[2], NORM_EPS).mul(&w).sum(),
     );
 
     let w = sample(&[2, 2, 2, 2]);
@@ -350,7 +309,7 @@ fn normalization() {
             Tensor::ones(&[2]),
             Tensor::zeros(&[2]),
         ],
-        move |x| x[0].batch_norm2d(&x[1], &x[2], 1e-5).0.mul(&w).sum(),
+        move |x| x[0].batch_norm2d(&x[1], &x[2], NORM_EPS).0.mul(&w).sum(),
     );
 
     let w = sample(&[3, 4]);
@@ -359,8 +318,6 @@ fn normalization() {
         x[0].div(&scale).mul(&w).sum()
     });
 }
-
-// ── Losses ───────────────────────────────────────────────────────────────────
 
 #[test]
 fn losses() {
@@ -386,8 +343,6 @@ fn losses() {
         bce_with_logits(&x[0], &t)
     });
 }
-
-// ── Whole layers ─────────────────────────────────────────────────────────────
 
 #[test]
 fn a_full_model_trains() {
@@ -465,8 +420,7 @@ fn gradients_accumulate_until_zeroed() {
 
 #[test]
 fn a_parameter_used_twice_sums_both_paths() {
-    // Weight tying: the same handle appears in two places, so its gradient must
-    // be the sum of both. This works because both uses share one GradSlot.
+    // Weight tying: both uses share one GradSlot.
     let shared = Param::new(sample(&[2, 2]));
     let x = sample(&[2, 2]);
 
@@ -527,8 +481,7 @@ fn masked_attention_matches_finite_differences() {
     });
 }
 
-/// The configurable cross-entropy has its own fused backward; check it under
-/// every option at once — smoothing, class weights, and an ignored row.
+/// Fused backward, with every option on at once.
 #[test]
 fn weighted_cross_entropy_matches_finite_differences() {
     let loss_fn = CrossEntropyLoss::new()
@@ -541,8 +494,7 @@ fn weighted_cross_entropy_matches_finite_differences() {
     });
 }
 
-/// The per-row reduction takes a `[batch]` upstream gradient — the other
-/// branch of the backward rule, checked with a weighted combination.
+/// Takes a `[batch]` upstream gradient, the other branch of the rule.
 #[test]
 fn per_row_cross_entropy_matches_finite_differences() {
     let weight = Tensor::from_vec(vec![0.7, -0.3, 1.2], &[3]);
@@ -553,13 +505,9 @@ fn per_row_cross_entropy_matches_finite_differences() {
     });
 }
 
-/// col2im is a new forward op; check it (and its Im2ColBackward) directly,
-/// weighted so overlap accumulation cannot hide behind a symmetric sum.
 #[test]
 fn col2im_matches_finite_differences() {
-    use fastnn::tensor::Window;
     let window = Window::square(2, 2, 0);
-    // Columns for a 4×4 target image: patch = 1·2·2, positions = 2·2.
     let weight = sample(&[1, 1, 4, 4]);
 
     gradcheck("col2im", &[sample(&[1, 4, 4])], |v| {
@@ -567,12 +515,9 @@ fn col2im_matches_finite_differences() {
     });
 }
 
-/// Dilation changes the index map; the finite-difference check proves the
-/// backward folds along the same stretched footprint the forward reads.
 #[test]
 fn dilated_im2col_matches_finite_differences() {
-    use fastnn::tensor::Window;
-    // Span (2−1)·2+1 = 3 on a padded 5×5 input → 5×5 = 25 output positions.
+    // Span 3 on a padded 5x5 input gives 25 output positions.
     let window = Window::square(2, 1, 1).dilated(2);
     let weight = sample(&[1, 4, 25]);
 

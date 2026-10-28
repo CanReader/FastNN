@@ -1,8 +1,5 @@
-//! Derivatives of matrix multiplication.
-//!
-//! Each rule is two more multiplications, chosen so that neither needs a
-//! transposed copy of anything — that is the whole reason `matmul_nt` and
-//! `matmul_tn` exist as first-class ops.
+//! Derivatives of matmul. Each is two more matmuls, picked so no transposed copy
+//! is needed.
 
 use crate::autograd::Backward;
 use crate::tensor::Tensor;
@@ -60,10 +57,7 @@ impl Backward for MatmulTnBackward {
     }
 }
 
-/// Sum away any batch dimension the forward pass broadcast over.
-///
-/// A weight matrix multiplied against a batch of inputs is the usual case: its
-/// gradient comes back batched and every sample contributed to it.
+/// Sum away batch dims the forward broadcast over, e.g. a shared weight matrix.
 fn unbatch(d_a: Tensor, d_b: Tensor, a: &Tensor, b: &Tensor) -> Vec<Tensor> {
     vec![reduce_to(&d_a, a.shape()), reduce_to(&d_b, b.shape())]
 }

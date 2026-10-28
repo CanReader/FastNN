@@ -1,16 +1,10 @@
-//! The guard rails a long unattended run depends on.
-//!
-//! Each of these covers a failure that is silent without it: an optimizer that
-//! forgets its momentum, a NaN that only surfaces once the checkpoint is already
-//! poisoned, a frozen layer that trains anyway.
-//!
-//!     cargo test --no-default-features --test robustness
+//! Resuming, anomaly detection, freezing and the fallible ops.
 
 use fastnn::autograd::detect_anomaly;
 use fastnn::prelude::*;
 use fastnn::serialize::{load_training, save_training};
 
-/// A scratch path that cleans itself up.
+/// Deleted on drop.
 struct TempFile(std::path::PathBuf);
 
 impl TempFile {
@@ -55,8 +49,6 @@ fn train_steps(
         opt.step();
     }
 }
-
-// ── Float indices ────────────────────────────────────────────────────────────
 
 fn assert_invalid_float_indices(mut consume: impl FnMut(f32)) {
     let upper = (usize::MAX as f64 + 1.0) as f32;
@@ -146,21 +138,19 @@ fn float_indices_labels_accept_largest_fitting_integer() {
     assert_eq!(batch.labels(), vec![largest as usize]);
 }
 
-// ── Resuming a run ───────────────────────────────────────────────────────────
-
 #[test]
 fn resuming_matches_training_straight_through() {
     let file = TempFile::new("resume");
     let (inputs, targets) = batch();
 
-    // Run twenty steps without interruption.
+    // Twenty steps straight through.
     manual_seed(9);
     let reference = small_model();
     let mut opt = Adam::new(reference.parameters(), 0.05);
     train_steps(&reference, &mut opt, &inputs, &targets, 20);
     let uninterrupted = cross_entropy(&reference.forward(&inputs), &targets).item();
 
-    // The same twenty steps, saved and reloaded halfway.
+    // The same twenty with a save and reload at ten.
     manual_seed(9);
     let resumed = small_model();
     let mut opt = Adam::new(resumed.parameters(), 0.05);
@@ -182,10 +172,8 @@ fn resuming_matches_training_straight_through() {
 
 #[test]
 fn a_cold_optimizer_takes_a_different_path() {
-    // Guards the test above. If the moments and step count did not really survive
-    // the round trip, both paths here would be identical and
-    // `resuming_matches_training_straight_through` could pass while restoring
-    // nothing. Restoring the weights alone must visibly differ.
+    // Guards the test above: if no optimizer state were restored, the two paths
+    // would match and that test could pass while restoring nothing.
     let file = TempFile::new("cold");
     let (inputs, targets) = batch();
 
@@ -198,7 +186,7 @@ fn a_cold_optimizer_takes_a_different_path() {
     let continue_step = |restore_optimizer: bool| {
         let restored = small_model();
         let mut opt = Adam::new(restored.parameters(), 0.05);
-        // Both paths load the same weights; only one also loads the optimizer.
+        // Both load the same weights, only one keeps the loaded optimizer.
         let mut loader = Adam::new(restored.parameters(), 0.05);
         load_training(&restored, &mut loader, file.path()).unwrap();
         if restore_optimizer {
@@ -264,13 +252,11 @@ fn a_mismatched_optimizer_is_reported() {
     train_steps(&model, &mut opt, &inputs, &targets, 3);
     save_training(&model, &opt, 3, file.path()).unwrap();
 
-    // Same architecture, but the optimizer covers only part of it.
+    // The optimizer covers only part of the model.
     let other = small_model();
     let mut fewer = Adam::new(other.parameters()[..2].to_vec(), 0.05);
     assert!(load_training(&other, &mut fewer, file.path()).is_err());
 }
-
-// ── Anomaly detection ────────────────────────────────────────────────────────
 
 #[test]
 #[should_panic(expected = "Log")]
@@ -313,8 +299,6 @@ fn finiteness_guard_spots_a_poisoned_gradient() {
     assert!(!opt.gradients_are_finite());
 }
 
-// ── Freezing ─────────────────────────────────────────────────────────────────
-
 #[test]
 fn a_frozen_layer_does_not_move() {
     let backbone = Linear::new(4, 6);
@@ -351,8 +335,7 @@ fn a_frozen_layer_does_not_move() {
 
 #[test]
 fn freezing_skips_the_gradient_entirely() {
-    // A frozen parameter hands out a detached tensor, so the backward pass stops
-    // there — no gradient is computed only to be thrown away.
+    // A frozen parameter hands out a detached tensor, so no gradient is computed.
     let layer = Linear::new(4, 6);
     layer.freeze();
 
@@ -387,8 +370,6 @@ fn freezing_reaches_through_a_container() {
         "freezing should not hide parameters"
     );
 }
-
-// ── Fallible ops ─────────────────────────────────────────────────────────────
 
 #[test]
 fn shape_errors_are_reported_not_fatal() {

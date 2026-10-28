@@ -1,15 +1,9 @@
-//! Throughput benchmarks for the hot paths.
-//!
-//!     cargo bench                         # CPU
-//!     cargo bench --features cuda         # CUDA, if the toolkit is present
-//!
-//! Benchmarks run on whichever device is available, so the same command measures
-//! either backend. GPU timings include the launch, not just the kernel.
+//! Hot path throughput on the GPU if there is one, otherwise the CPU.
+//! GPU timings include the launch.
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use fastnn::prelude::*;
 
-/// The device under test, named for the report.
 fn device() -> (Device, &'static str) {
     match Device::cuda(0) {
         Ok(device) => (device, "cuda"),
@@ -25,7 +19,7 @@ fn matmul(c: &mut Criterion) {
         let a = Tensor::randn(&[size, size]).to(device);
         let b = Tensor::randn(&[size, size]).to(device);
 
-        // Two flops per multiply-accumulate.
+        // Two flops per multiply-add.
         group.throughput(Throughput::Elements(2 * (size * size * size) as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), &size, |bench, _| {
             bench.iter(|| a.matmul(&b))
@@ -34,9 +28,7 @@ fn matmul(c: &mut Criterion) {
     group.finish();
 }
 
-/// The transpose-fused forms, which the backward pass of every linear layer
-/// leans on. They should track plain matmul closely — if they do not, a
-/// transposed copy is being materialised somewhere it should not be.
+/// Should track plain matmul, if not a transposed copy is being materialised.
 fn matmul_fused(c: &mut Criterion) {
     let (device, name) = device();
     let mut group = c.benchmark_group(format!("matmul_fused/{name}"));
@@ -82,7 +74,6 @@ fn reductions(c: &mut Criterion) {
     group.finish();
 }
 
-/// Rearranging is pure memory traffic, and it sits in every attention forward.
 fn layout(c: &mut Criterion) {
     let (device, name) = device();
     let mut group = c.benchmark_group(format!("layout/{name}"));
@@ -97,7 +88,6 @@ fn layout(c: &mut Criterion) {
     group.finish();
 }
 
-/// A whole training step, which is what actually matters.
 fn training_step(c: &mut Criterion) {
     let (device, name) = device();
     let mut group = c.benchmark_group(format!("step/{name}"));

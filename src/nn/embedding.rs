@@ -5,10 +5,11 @@ use crate::tensor::{ops::index::index_from_f32, Tensor};
 use super::module::Module;
 use super::param::Param;
 
-/// A learnable `[vocab, dim]` table, looked up by token id.
-///
-/// The lookup is [`index_select`](Tensor::index_select), so the gradient
-/// scatter-adds back into the rows that were used and leaves the rest untouched.
+const INIT_STD: f32 = 0.02;
+/// Base of the geometric wavelength progression in the sinusoidal encoding.
+const WAVELENGTH_BASE: f32 = 10000.0;
+
+/// A learnable `[vocab, dim]` table looked up by token id.
 pub struct Embedding {
     pub weight: Param,
     vocab: usize,
@@ -17,10 +18,9 @@ pub struct Embedding {
 
 impl Embedding {
     pub fn new(vocab: usize, dim: usize) -> Embedding {
-        // Small normal init: large embeddings would dominate the residual stream
-        // before the model has learned anything.
+        // small init so embeddings don't dominate the residual stream early on
         Embedding {
-            weight: Param::new(Tensor::randn(&[vocab, dim]).mul_scalar(0.02)),
+            weight: Param::new(Tensor::randn(&[vocab, dim]).mul_scalar(INIT_STD)),
             vocab,
             dim,
         }
@@ -54,9 +54,8 @@ impl Embedding {
 }
 
 impl Module for Embedding {
-    /// Treats finite, non-negative integer values as ids.
-    /// Panics if an id cannot be represented as `usize`.
-    /// Prefer [`lookup`](Embedding::lookup), which takes `usize` directly.
+    /// Treats finite, non-negative integer values as ids and panics on anything
+    /// else. Prefer [`lookup`](Embedding::lookup).
     fn forward(&self, input: &Tensor) -> Tensor {
         let ids: Vec<usize> = input.to_vec().into_iter().map(index_from_f32).collect();
         let mut shape: Vec<i64> = input.shape().iter().map(|&d| d as i64).collect();
@@ -70,9 +69,6 @@ impl Module for Embedding {
 }
 
 /// Fixed sinusoidal position signal, added to token embeddings.
-///
-/// Not learned: the sin/cos pattern lets the model read relative offsets as a
-/// linear function of position, and generalises past the longest training length.
 pub struct PositionalEncoding {
     table: Tensor,
     dim: usize,
@@ -83,7 +79,7 @@ impl PositionalEncoding {
         let mut table = vec![0.0f32; max_len * dim];
         for position in 0..max_len {
             for i in (0..dim).step_by(2) {
-                let angle = position as f32 / 10000f32.powf(i as f32 / dim as f32);
+                let angle = position as f32 / WAVELENGTH_BASE.powf(i as f32 / dim as f32);
                 table[position * dim + i] = angle.sin();
                 if i + 1 < dim {
                     table[position * dim + i + 1] = angle.cos();

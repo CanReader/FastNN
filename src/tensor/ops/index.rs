@@ -1,7 +1,4 @@
-//! Selecting rows by index.
-//!
-//! This is the whole of an embedding lookup: gather rows forward, scatter-add
-//! the gradient back into the table.
+//! Row selection, the lookup behind embeddings.
 
 use crate::autograd::ops::index::IndexSelectBackward;
 use crate::cuda::kernels;
@@ -21,9 +18,7 @@ pub(crate) fn index_from_f32(value: f32) -> usize {
 }
 
 impl Tensor {
-    /// Gather rows `ids` from this `[rows, cols]` table into `[ids.len(), cols]`.
-    ///
-    /// Repeated ids are fine — their gradients add up.
+    /// Gather rows `ids` from a `[rows, cols]` table. Repeated ids are fine.
     pub fn index_select(&self, ids: &[usize]) -> Tensor {
         assert_eq!(
             self.ndim(),

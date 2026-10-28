@@ -7,12 +7,11 @@
 #include <float.h>
 #include <stdio.h>
 
-// ============================================================================
-// Constants & Helpers
-// ============================================================================
 #define BLOCK_SIZE 256
 #define TILE_SIZE 32
 #define WARP_SIZE 32
+#define ARGMAX_MAX_THREADS 1024
+#define PERMUTE_MAX_DIMS 8
 
 #define CUDA_CHECK(call) do { \
     cudaError_t err = (call); \
@@ -29,9 +28,6 @@ static curandGenerator_t g_curand_gen = nullptr;
 
 static inline int div_ceil(int a, int b) { return (a + b - 1) / b; }
 
-// ============================================================================
-// Device Management
-// ============================================================================
 extern "C" int fastnn_cuda_init(int device_id) {
     CUDA_CHECK(cudaSetDevice(device_id));
 
@@ -63,9 +59,6 @@ extern "C" void fastnn_cuda_get_memory_info(size_t* free_mem, size_t* total_mem)
     cudaMemGetInfo(free_mem, total_mem);
 }
 
-// ============================================================================
-// Memory Management
-// ============================================================================
 extern "C" int fastnn_cuda_malloc(float** ptr, size_t size) {
     CUDA_CHECK(cudaMalloc(ptr, size));
     return 0;
@@ -96,9 +89,6 @@ extern "C" int fastnn_cuda_memset(float* ptr, int value, size_t size) {
     return 0;
 }
 
-// ============================================================================
-// Element-wise Kernels
-// ============================================================================
 __global__ void kernel_add(const float* a, const float* b, float* out, size_t n) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) out[idx] = a[idx] + b[idx];
@@ -164,13 +154,9 @@ __global__ void kernel_clamp(const float* a, float min_val, float max_val, float
     if (idx < n) out[idx] = fminf(fmaxf(a[idx], min_val), max_val);
 }
 
-// Threads for a one-block-per-row reduction over `n` values.
-//
-// The tree reductions below halve blockDim.x each round, so a thread count that
-// is not a power of two silently drops the tail: with 5 threads, stride 2 folds
-// 2->0 and 3->1 and thread 4 is never read. Round up instead. Threads past `n`
-// skip their strided loop entirely and so contribute the identity (0 for a sum,
-// -FLT_MAX for a max), which is exactly what the reduction needs.
+// The tree reductions halve blockDim.x each round, so a non-power-of-two thread
+// count drops the tail (5 threads: stride 2 folds 2->0 and 3->1, thread 4 is
+// never read). Round up; extra threads skip their loop and add the identity.
 __host__ inline int reduction_threads(int n) {
     int threads = 1;
     while (threads < n && threads < BLOCK_SIZE) threads <<= 1;
@@ -199,9 +185,6 @@ extern "C" int fastnn_cuda_exp(const float* a, float* out, size_t n) { LAUNCH_EL
 extern "C" int fastnn_cuda_log(const float* a, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_log, a, out, n); }
 extern "C" int fastnn_cuda_clamp(const float* a, float min_v, float max_v, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_clamp, a, min_v, max_v, out, n); }
 
-// ============================================================================
-// Activation Kernels
-// ============================================================================
 __global__ void kernel_relu(const float* input, float* output, size_t n) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) output[idx] = fmaxf(input[idx], 0.0f);
@@ -245,7 +228,6 @@ __global__ void kernel_tanh_backward(const float* grad_output, const float* outp
     if (idx < n) grad_input[idx] = grad_output[idx] * (1.0f - output[idx] * output[idx]);
 }
 
-// GELU: 0.5 * x * (1 + erf(x / sqrt(2)))
 __global__ void kernel_gelu(const float* input, float* output, size_t n) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
@@ -264,7 +246,6 @@ __global__ void kernel_gelu_backward(const float* grad_output, const float* inpu
     }
 }
 
-// SiLU (Swish): x * sigmoid(x)
 __global__ void kernel_silu(const float* input, float* output, size_t n) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
@@ -296,9 +277,6 @@ extern "C" int fastnn_cuda_gelu_backward(const float* go, const float* in, float
 extern "C" int fastnn_cuda_silu(const float* in, float* out, size_t n) { LAUNCH_ELEMENTWISE(kernel_silu, in, out, n); }
 extern "C" int fastnn_cuda_silu_backward(const float* go, const float* in, float* gi, size_t n) { LAUNCH_ELEMENTWISE(kernel_silu_backward, go, in, gi, n); }
 
-// ============================================================================
-// Softmax (numerically stable, shared memory)
-// ============================================================================
 __global__ void kernel_softmax(const float* input, float* output, int batch_size, int num_classes) {
     int batch_idx = blockIdx.x;
     if (batch_idx >= batch_size) return;
@@ -307,7 +285,7 @@ __global__ void kernel_softmax(const float* input, float* output, int batch_size
     const float* in_row = input + batch_idx * num_classes;
     float* out_row = output + batch_idx * num_classes;
 
-    // Find max for numerical stability
+    // subtract the row max so expf cannot overflow
     float thread_max = -FLT_MAX;
     for (int i = threadIdx.x; i < num_classes; i += blockDim.x) {
         thread_max = fmaxf(thread_max, in_row[i]);
@@ -315,7 +293,6 @@ __global__ void kernel_softmax(const float* input, float* output, int batch_size
     shared[threadIdx.x] = thread_max;
     __syncthreads();
 
-    // Parallel reduction for max
     for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
         if (threadIdx.x < stride)
             shared[threadIdx.x] = fmaxf(shared[threadIdx.x], shared[threadIdx.x + stride]);
@@ -324,7 +301,6 @@ __global__ void kernel_softmax(const float* input, float* output, int batch_size
     float max_val = shared[0];
     __syncthreads();
 
-    // Compute exp(x - max) and sum
     float thread_sum = 0.0f;
     for (int i = threadIdx.x; i < num_classes; i += blockDim.x) {
         float val = expf(in_row[i] - max_val);
@@ -334,7 +310,6 @@ __global__ void kernel_softmax(const float* input, float* output, int batch_size
     shared[threadIdx.x] = thread_sum;
     __syncthreads();
 
-    // Parallel reduction for sum
     for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
         if (threadIdx.x < stride)
             shared[threadIdx.x] += shared[threadIdx.x + stride];
@@ -343,7 +318,6 @@ __global__ void kernel_softmax(const float* input, float* output, int batch_size
     float sum_val = shared[0];
     __syncthreads();
 
-    // Normalize
     for (int i = threadIdx.x; i < num_classes; i += blockDim.x) {
         out_row[i] /= sum_val;
     }
@@ -359,7 +333,6 @@ __global__ void kernel_softmax_backward(const float* grad_output, const float* o
     const float* out_row = output + batch_idx * num_classes;
     float* gi_row = grad_input + batch_idx * num_classes;
 
-    // Compute dot product: sum(grad_output * output)
     float thread_dot = 0.0f;
     for (int i = threadIdx.x; i < num_classes; i += blockDim.x) {
         thread_dot += go_row[i] * out_row[i];
@@ -375,7 +348,6 @@ __global__ void kernel_softmax_backward(const float* grad_output, const float* o
     float dot = shared[0];
     __syncthreads();
 
-    // grad_input = output * (grad_output - dot)
     for (int i = threadIdx.x; i < num_classes; i += blockDim.x) {
         gi_row[i] = out_row[i] * (go_row[i] - dot);
     }
@@ -438,14 +410,11 @@ extern "C" int fastnn_cuda_log_softmax(const float* input, float* output, int bs
     return 0;
 }
 
-// ============================================================================
-// Matrix Operations (cuBLAS for GEMM)
-// ============================================================================
 extern "C" int fastnn_cuda_matmul(const float* a, const float* b, float* c,
                                    int m, int n, int k,
                                    int lda, int ldb, int ldc,
                                    float alpha, float beta) {
-    // cuBLAS uses column-major, so we compute C^T = B^T * A^T
+    // cuBLAS is column-major, so compute C^T = B^T * A^T
     CUBLAS_CHECK(cublasSgemm(g_cublas_handle,
                              CUBLAS_OP_N, CUBLAS_OP_N,
                              n, m, k,
@@ -457,15 +426,10 @@ extern "C" int fastnn_cuda_matmul(const float* a, const float* b, float* c,
     return 0;
 }
 
-// ─── Transpose-fused GEMM variants ─────────────────────────────────────────
-// All matrices are row-major. cuBLAS is column-major so we use the standard
-// "C^T = B^T × A^T" trick: pass arguments in reversed order with swapped dims.
-//
-// C (m×n) = A (m×k) × B^T (k×n)  where B is stored (n×k) row-major.
+// C (m×n) = A (m×k) × B^T, B stored (n×k)
 extern "C" int fastnn_cuda_matmul_nt(const float* a, const float* b, float* c,
                                       int m, int n, int k) {
     float alpha = 1.0f, beta = 0.0f;
-    // C^T (n×m) = B (n×k) × A^T (k×m)
     CUBLAS_CHECK(cublasSgemm(g_cublas_handle,
                              CUBLAS_OP_T, CUBLAS_OP_N,
                              n, m, k,
@@ -473,11 +437,10 @@ extern "C" int fastnn_cuda_matmul_nt(const float* a, const float* b, float* c,
     return 0;
 }
 
-// C (m×n) = A^T (m×k) × B (k×n)  where A is stored (k×m) row-major.
+// C (m×n) = A^T × B (k×n), A stored (k×m)
 extern "C" int fastnn_cuda_matmul_tn(const float* a, const float* b, float* c,
                                       int m, int n, int k) {
     float alpha = 1.0f, beta = 0.0f;
-    // C^T (n×m) = B^T (n×k) × A (k×m) — A (k×m) row-major, lda=m
     CUBLAS_CHECK(cublasSgemm(g_cublas_handle,
                              CUBLAS_OP_N, CUBLAS_OP_T,
                              n, m, k,
@@ -485,7 +448,7 @@ extern "C" int fastnn_cuda_matmul_tn(const float* a, const float* b, float* c,
     return 0;
 }
 
-// Batched C (batch×m×n) = A (batch×m×k) × B^T (batch×k×n)  where B is (batch×n×k).
+// Batched C = A × B^T, B stored (batch×n×k)
 extern "C" int fastnn_cuda_matmul_batched_nt(const float* a, const float* b, float* c,
                                                int m, int n, int k, int batch_size) {
     float alpha = 1.0f, beta = 0.0f;
@@ -502,7 +465,7 @@ extern "C" int fastnn_cuda_matmul_batched_nt(const float* a, const float* b, flo
     return 0;
 }
 
-// Batched C (batch×m×n) = A^T (batch×m×k) × B (batch×k×n)  where A is (batch×k×m).
+// Batched C = A^T × B, A stored (batch×k×m)
 extern "C" int fastnn_cuda_matmul_batched_tn(const float* a, const float* b, float* c,
                                                int m, int n, int k, int batch_size) {
     float alpha = 1.0f, beta = 0.0f;
@@ -539,7 +502,7 @@ extern "C" int fastnn_cuda_matmul_batched(const float* a, const float* b, float*
 }
 
 __global__ void kernel_transpose(const float* input, float* output, int rows, int cols) {
-    __shared__ float tile[TILE_SIZE][TILE_SIZE + 1]; // +1 to avoid bank conflicts
+    __shared__ float tile[TILE_SIZE][TILE_SIZE + 1]; // +1 pad avoids bank conflicts
 
     int x = blockIdx.x * TILE_SIZE + threadIdx.x;
     int y = blockIdx.y * TILE_SIZE + threadIdx.y;
@@ -594,13 +557,10 @@ extern "C" int fastnn_cuda_transpose_batched(const float* input, float* output, 
     return 0;
 }
 
-// ============================================================================
-// N-D Permute
-// ============================================================================
 struct PermuteNDParams {
-    int out_strides[8];
-    int in_strides[8];
-    int perm[8];
+    int out_strides[PERMUTE_MAX_DIMS];
+    int in_strides[PERMUTE_MAX_DIMS];
+    int perm[PERMUTE_MAX_DIMS];
     int ndim;
 };
 
@@ -630,7 +590,7 @@ extern "C" int fastnn_cuda_permute_nd(
 {
     PermuteNDParams params;
     params.ndim = ndim;
-    for (int i = 0; i < ndim && i < 8; i++) {
+    for (int i = 0; i < ndim && i < PERMUTE_MAX_DIMS; i++) {
         params.out_strides[i] = out_strides[i];
         params.in_strides[i]  = in_strides[i];
         params.perm[i]        = perm[i];
@@ -641,9 +601,6 @@ extern "C" int fastnn_cuda_permute_nd(
     return 0;
 }
 
-// ============================================================================
-// Reduction Operations
-// ============================================================================
 __global__ void kernel_sum(const float* input, float* output, size_t n) {
     extern __shared__ float sdata[];
     unsigned int tid = threadIdx.x;
@@ -660,7 +617,6 @@ __global__ void kernel_sum(const float* input, float* output, size_t n) {
         __syncthreads();
     }
 
-    // Warp-level reduction (no sync needed)
     if (tid < WARP_SIZE) {
         volatile float* smem = sdata;
         if (blockDim.x >= 64) smem[tid] += smem[tid + 32];
@@ -685,13 +641,11 @@ extern "C" int fastnn_cuda_sum(const float* input, float* output, size_t n) {
 __global__ void kernel_sum_axis(const float* input, float* output, int* shape, int ndim, int axis, int total_elements) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-    // Calculate output size
     int axis_size = shape[axis];
     int output_size = total_elements / axis_size;
 
     if (idx >= output_size) return;
 
-    // Calculate the multi-dim index in the output
     int inner_size = 1;
     for (int i = axis + 1; i < ndim; i++) inner_size *= shape[i];
 
@@ -707,19 +661,12 @@ __global__ void kernel_sum_axis(const float* input, float* output, int* shape, i
 }
 
 extern "C" int fastnn_cuda_sum_axis(const float* input, float* output, int* shape, int ndim, int axis, int total_elements) {
-    int axis_size = 1;
-    // Read axis size from device memory would be complex, so we calculate output size
-    int output_size = total_elements; // Will be divided by axis_size in kernel
-    // We need to copy shape to device
+    // shape is host memory, the kernel needs its own device copy
     int* d_shape;
     CUDA_CHECK(cudaMalloc(&d_shape, ndim * sizeof(int)));
     CUDA_CHECK(cudaMemcpy(d_shape, shape, ndim * sizeof(int), cudaMemcpyHostToDevice));
 
-    // Calculate output size on host
-    int h_axis_size;
-    // shape is host memory in this interface
-    h_axis_size = shape[axis];
-    output_size = total_elements / h_axis_size;
+    int output_size = total_elements / shape[axis];
 
     int blocks = div_ceil(output_size, BLOCK_SIZE);
     kernel_sum_axis<<<blocks, BLOCK_SIZE>>>(input, output, d_shape, ndim, axis, total_elements);
@@ -751,7 +698,6 @@ __global__ void kernel_max(const float* input, float* output, size_t n) {
     }
 
     if (tid == 0) {
-        // Atomic max for float using atomicCAS
         float old = *output;
         while (sdata[0] > old) {
             float assumed = old;
@@ -771,7 +717,6 @@ extern "C" int fastnn_cuda_max(const float* input, float* output, size_t n) {
 }
 
 extern "C" int fastnn_cuda_min(const float* input, float* output, size_t n) {
-    // Negate, find max, negate result
     float* temp;
     CUDA_CHECK(cudaMalloc(&temp, n * sizeof(float)));
     fastnn_cuda_neg(input, temp, n);
@@ -802,15 +747,14 @@ __global__ void kernel_argmax(const float* input, int* output, size_t n) {
     }
 
     if (tid == 0) {
-        // Simple atomic compare-and-swap for global argmax
-        // For single-block case, just write directly
         output[0] = sidx[0];
     }
 }
 
 extern "C" int fastnn_cuda_argmax(const float* input, int* output, size_t n) {
-    // Simple single-pass for now
-    kernel_argmax<<<1, min((int)n, 1024), 1024 * (sizeof(float) + sizeof(int))>>>(input, output, n);
+    // One block, one element per thread: only right for n <= ARGMAX_MAX_THREADS
+    // and a power-of-two n.
+    kernel_argmax<<<1, min((int)n, ARGMAX_MAX_THREADS), ARGMAX_MAX_THREADS * (sizeof(float) + sizeof(int))>>>(input, output, n);
     CUDA_CHECK(cudaGetLastError());
     return 0;
 }
@@ -843,9 +787,6 @@ extern "C" int fastnn_cuda_argmax_axis(const float* input, int* output, int oute
     return 0;
 }
 
-// ============================================================================
-// Convolution (im2col + GEMM approach)
-// ============================================================================
 __global__ void kernel_im2col(
     const float* input, float* col,
     int channels, int height, int width,
@@ -925,16 +866,11 @@ extern "C" int fastnn_cuda_conv2d_forward(
         const float* input_b = input + b * in_channels * input_h * input_w;
         float* output_b = output + b * out_channels * out_h * out_w;
 
-        // im2col
         int blocks = div_ceil(col_size, BLOCK_SIZE);
         kernel_im2col<<<blocks, BLOCK_SIZE>>>(
             input_b, col, in_channels, input_h, input_w,
             kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w, out_h, out_w);
 
-        // GEMM: output = weight * col
-        // weight: [out_channels, in_channels * kernel_h * kernel_w]
-        // col:    [in_channels * kernel_h * kernel_w, out_h * out_w]
-        // output: [out_channels, out_h * out_w]
         float alpha = 1.0f, beta = 0.0f;
         int M = out_channels;
         int N = out_h * out_w;
@@ -943,7 +879,6 @@ extern "C" int fastnn_cuda_conv2d_forward(
         CUBLAS_CHECK(cublasSgemm(g_cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N,
                                   N, M, K, &alpha, col, N, weight, K, &beta, output_b, N));
 
-        // Add bias if provided
         if (bias != nullptr) {
             for (int oc = 0; oc < out_channels; oc++) {
                 float bias_val;
@@ -977,7 +912,6 @@ extern "C" int fastnn_cuda_conv2d_backward_data(
         const float* go_b = grad_output + b * out_channels * output_h * output_w;
         float* gi_b = grad_input + b * in_channels * input_h * input_w;
 
-        // col = weight^T * grad_output
         float alpha = 1.0f, beta = 0.0f;
         int M = in_channels * kernel_h * kernel_w;
         int N = output_h * output_w;
@@ -986,7 +920,6 @@ extern "C" int fastnn_cuda_conv2d_backward_data(
         CUBLAS_CHECK(cublasSgemm(g_cublas_handle, CUBLAS_OP_N, CUBLAS_OP_T,
                                   N, M, K, &alpha, go_b, N, weight, M, &beta, col, N));
 
-        // col2im
         int total = in_channels * input_h * input_w;
         int blocks = div_ceil(total, BLOCK_SIZE);
         kernel_col2im<<<blocks, BLOCK_SIZE>>>(
@@ -1017,13 +950,11 @@ extern "C" int fastnn_cuda_conv2d_backward_weight(
         const float* input_b = input + b * in_channels * input_h * input_w;
         const float* go_b = grad_output + b * out_channels * output_h * output_w;
 
-        // im2col on input
         int blocks = div_ceil(col_size, BLOCK_SIZE);
         kernel_im2col<<<blocks, BLOCK_SIZE>>>(
             input_b, col, in_channels, input_h, input_w,
             kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w, output_h, output_w);
 
-        // grad_weight += grad_output * col^T
         float alpha = 1.0f, beta = 1.0f;
         int M = out_channels;
         int N = in_channels * kernel_h * kernel_w;
@@ -1038,9 +969,6 @@ extern "C" int fastnn_cuda_conv2d_backward_weight(
     return 0;
 }
 
-// ============================================================================
-// Pooling Operations
-// ============================================================================
 __global__ void kernel_max_pool2d(
     const float* input, float* output, int* indices,
     int batch_size, int channels,
@@ -1234,9 +1162,6 @@ extern "C" int fastnn_cuda_adaptive_avg_pool2d(
     return 0;
 }
 
-// ============================================================================
-// Batch Normalization
-// ============================================================================
 __global__ void kernel_batch_norm_forward(
     const float* input, const float* gamma, const float* beta,
     float* running_mean, float* running_var,
@@ -1250,14 +1175,12 @@ __global__ void kernel_batch_norm_forward(
     int n = batch_size * spatial_size;
 
     if (training) {
-        // Compute mean
         float mean = 0.0f;
         for (int i = threadIdx.x; i < n; i += blockDim.x) {
             int b = i / spatial_size;
             int s = i % spatial_size;
             mean += input[(b * channels + c) * spatial_size + s];
         }
-        // Warp reduction
         __shared__ float smean[BLOCK_SIZE];
         smean[threadIdx.x] = mean;
         __syncthreads();
@@ -1267,7 +1190,6 @@ __global__ void kernel_batch_norm_forward(
         }
         mean = smean[0] / (float)n;
 
-        // Compute variance
         float var = 0.0f;
         for (int i = threadIdx.x; i < n; i += blockDim.x) {
             int b = i / spatial_size;
@@ -1294,7 +1216,6 @@ __global__ void kernel_batch_norm_forward(
         }
         __syncthreads();
 
-        // Normalize
         for (int i = threadIdx.x; i < n; i += blockDim.x) {
             int b = i / spatial_size;
             int s = i % spatial_size;
@@ -1343,7 +1264,6 @@ __global__ void kernel_batch_norm_backward(
     float inv_var = save_inv_var[c];
     float g = gamma[c];
 
-    // Compute grad_gamma and grad_beta
     float dg = 0.0f, db = 0.0f;
     for (int i = threadIdx.x; i < n; i += blockDim.x) {
         int b = i / spatial_size;
@@ -1374,7 +1294,6 @@ __global__ void kernel_batch_norm_backward(
     }
     __syncthreads();
 
-    // Compute grad_input
     float inv_n = 1.0f / (float)n;
     for (int i = threadIdx.x; i < n; i += blockDim.x) {
         int b = i / spatial_size;
@@ -1399,9 +1318,6 @@ extern "C" int fastnn_cuda_batch_norm_backward(
     return 0;
 }
 
-// ============================================================================
-// Layer Normalization
-// ============================================================================
 __global__ void kernel_layer_norm_forward(
     const float* input, const float* gamma, const float* beta,
     float* output, float* mean_out, float* inv_var_out,
@@ -1414,7 +1330,6 @@ __global__ void kernel_layer_norm_forward(
     const float* in_row = input + b * normalized_size;
     float* out_row = output + b * normalized_size;
 
-    // Compute mean
     float thread_sum = 0.0f;
     for (int i = threadIdx.x; i < normalized_size; i += blockDim.x)
         thread_sum += in_row[i];
@@ -1427,7 +1342,6 @@ __global__ void kernel_layer_norm_forward(
     float mean = shared[0] / (float)normalized_size;
     __syncthreads();
 
-    // Compute variance
     float thread_var = 0.0f;
     for (int i = threadIdx.x; i < normalized_size; i += blockDim.x) {
         float diff = in_row[i] - mean;
@@ -1447,7 +1361,6 @@ __global__ void kernel_layer_norm_forward(
     }
     __syncthreads();
 
-    // Normalize
     for (int i = threadIdx.x; i < normalized_size; i += blockDim.x) {
         float normalized = (in_row[i] - mean) * inv_var;
         out_row[i] = gamma[i] * normalized + beta[i];
@@ -1482,7 +1395,6 @@ __global__ void kernel_layer_norm_backward(
     float m = mean[b];
     float iv = inv_var[b];
 
-    // Compute partial sums
     float ds = 0.0f, db = 0.0f;
     for (int i = threadIdx.x; i < normalized_size; i += blockDim.x) {
         float xhat = (in_row[i] - m) * iv;
@@ -1492,7 +1404,6 @@ __global__ void kernel_layer_norm_backward(
         atomicAdd(&grad_beta[i], go_row[i]);
     }
 
-    // Reduce ds and db
     float* shared2 = shared + blockDim.x;
     shared[threadIdx.x] = ds;
     shared2[threadIdx.x] = db;
@@ -1531,7 +1442,6 @@ extern "C" int fastnn_cuda_layer_norm_backward(
     return 0;
 }
 
-// RMS Norm
 __global__ void kernel_rms_norm_forward(
     const float* input, const float* gamma,
     float* output, float* rms_out,
@@ -1573,9 +1483,6 @@ extern "C" int fastnn_cuda_rms_norm_forward(
     return 0;
 }
 
-// ============================================================================
-// Dropout
-// ============================================================================
 __global__ void kernel_dropout_forward(const float* input, float* output, float* mask, float p, size_t n, unsigned long long seed) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= n) return;
@@ -1609,9 +1516,6 @@ extern "C" int fastnn_cuda_dropout_backward(const float* grad_output, const floa
     LAUNCH_ELEMENTWISE(kernel_dropout_backward, grad_output, mask, grad_input, p, n);
 }
 
-// ============================================================================
-// Embedding
-// ============================================================================
 __global__ void kernel_embedding_forward(const int* indices, const float* weight, float* output, int num_indices, int embedding_dim) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= num_indices * embedding_dim) return;
@@ -1651,9 +1555,6 @@ extern "C" int fastnn_cuda_embedding_backward(const int* indices, const float* g
     return 0;
 }
 
-// ============================================================================
-// Loss Functions
-// ============================================================================
 __global__ void kernel_cross_entropy_loss(const float* log_probs, const int* targets, float* loss, float* grad,
                                            int batch_size, int num_classes) {
     int b = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1663,7 +1564,6 @@ __global__ void kernel_cross_entropy_loss(const float* log_probs, const int* tar
     float nll = -log_probs[b * num_classes + target];
     atomicAdd(loss, nll / (float)batch_size);
 
-    // Gradient: softmax output - one_hot (for log_softmax input)
     for (int c = 0; c < num_classes; c++) {
         float prob = expf(log_probs[b * num_classes + c]);
         grad[b * num_classes + c] = (prob - (c == target ? 1.0f : 0.0f)) / (float)batch_size;
@@ -1714,9 +1614,6 @@ extern "C" int fastnn_cuda_binary_cross_entropy(const float* predictions, const 
     return 0;
 }
 
-// ============================================================================
-// Scaled Dot-Product Attention
-// ============================================================================
 extern "C" int fastnn_cuda_scaled_dot_product_attention(
     const float* query, const float* key, const float* value,
     float* output, float* attn_weights,
@@ -1726,16 +1623,14 @@ extern "C" int fastnn_cuda_scaled_dot_product_attention(
 {
     int bh = batch_size * num_heads;
 
-    // QK^T: [bh, seq_len_q, head_dim] x [bh, head_dim, seq_len_k] -> [bh, seq_len_q, seq_len_k]
     float alpha = scale;
     float beta = 0.0f;
 
-    // We need to transpose K: [bh, seq_len_k, head_dim] -> [bh, head_dim, seq_len_k]
     float* key_t;
     CUDA_CHECK(cudaMalloc(&key_t, (size_t)bh * head_dim * seq_len_k * sizeof(float)));
     fastnn_cuda_transpose_batched(key, key_t, bh, seq_len_k, head_dim);
 
-    // Batched matmul: scores = Q * K^T * scale
+    // scores = scale * Q K^T
     CUBLAS_CHECK(cublasSgemmStridedBatched(g_cublas_handle,
         CUBLAS_OP_N, CUBLAS_OP_N,
         seq_len_k, seq_len_q, head_dim,
@@ -1748,30 +1643,9 @@ extern "C" int fastnn_cuda_scaled_dot_product_attention(
 
     cudaFree(key_t);
 
-    // Apply causal mask if needed
-    if (causal) {
-        // Simple causal mask: set upper triangular to -inf
-        int total = bh * seq_len_q * seq_len_k;
-        int blocks = div_ceil(total, BLOCK_SIZE);
-        // We'll use a lambda-style kernel
-        auto causal_mask = [=] __device__ (int idx) {
-            int k_pos = idx % seq_len_k;
-            int q_pos = (idx / seq_len_k) % seq_len_q;
-            if (k_pos > q_pos) return -1e9f;
-            return 0.0f;
-        };
-        // Use a kernel for this
-        // (Inline kernel for causal masking)
-    }
-
-    // Softmax over last dimension
-    for (int i = 0; i < bh * seq_len_q; i++) {
-        // Apply softmax per row (seq_len_q rows, each of length seq_len_k)
-    }
-    // Use our existing softmax
+    // `causal` and `mask` are not applied yet.
     fastnn_cuda_softmax(attn_weights, attn_weights, bh * seq_len_q, seq_len_k);
 
-    // Output = attn_weights * V
     alpha = 1.0f;
     beta = 0.0f;
     CUBLAS_CHECK(cublasSgemmStridedBatched(g_cublas_handle,
@@ -1788,9 +1662,6 @@ extern "C" int fastnn_cuda_scaled_dot_product_attention(
     return 0;
 }
 
-// ============================================================================
-// Optimizer Kernels
-// ============================================================================
 __global__ void kernel_sgd_step(float* params, const float* grads, float* velocity,
                                  float lr, float momentum, float weight_decay, float dampening,
                                  int nesterov, size_t n) {
@@ -1830,16 +1701,14 @@ __global__ void kernel_adam_step(float* params, const float* grads,
 
     float g = grads[idx];
 
-    // AdamW weight decay (decoupled)
+    // decay is applied to the weights directly, not folded into the gradient
     if (weight_decay != 0.0f) {
         params[idx] -= lr * weight_decay * params[idx];
     }
 
-    // Update biased first and second moment estimates
     m[idx] = beta1 * m[idx] + (1.0f - beta1) * g;
     v[idx] = beta2 * v[idx] + (1.0f - beta2) * g * g;
 
-    // Bias correction
     float m_hat = m[idx] / (1.0f - powf(beta1, (float)step));
     float v_hat = v[idx] / (1.0f - powf(beta2, (float)step));
 
@@ -1862,9 +1731,6 @@ extern "C" int fastnn_cuda_adam_step(float* params, const float* grads,
     return 0;
 }
 
-// ============================================================================
-// Utility Kernels
-// ============================================================================
 __global__ void kernel_fill(float* data, float value, size_t n) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) data[idx] = value;
@@ -1924,9 +1790,6 @@ extern "C" int fastnn_cuda_gather(const float* input, const int* indices, float*
     return 0;
 }
 
-// ============================================================================
-// Convolution lowering: im2col / col2im
-// ============================================================================
 __global__ void kernel_im2col(const float* input, float* cols,
                               int c, int h, int w,
                               int kh, int kw, int sh, int sw, int ph, int pw,
@@ -1963,9 +1826,7 @@ extern "C" int fastnn_cuda_im2col(const float* input, float* cols,
     return 0;
 }
 
-// One thread per input pixel, summing every window that covered it. Walking
-// the windows from the pixel's side needs no atomics, unlike scattering from
-// the columns' side.
+// One thread per input pixel gathers its windows, so no atomics are needed.
 __global__ void kernel_col2im(const float* cols, float* image,
                               int c, int h, int w,
                               int kh, int kw, int sh, int sw, int ph, int pw,

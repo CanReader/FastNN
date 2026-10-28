@@ -1,15 +1,4 @@
-//! Adagrad and Adadelta: adaptive steps from accumulated gradient history.
-//!
-//! Adagrad divides by the square root of the *total* squared gradient ever
-//! seen — coordinates that update often slow down, rare ones stay fast, which
-//! is exactly right for sparse features and exactly wrong for long runs, where
-//! the ever-growing accumulator drives every step toward zero.
-//!
-//! Adadelta is the repair: replace the total with an exponential average, and
-//! replace the global learning rate with a running average of the updates
-//! themselves, so the step size carries the *units* of the parameter — the
-//! ratio `√E[Δx²]/√E[g²]` is dimensionally an x per g, where Adagrad's
-//! `1/√E[g²]` is not.
+//! Adagrad and Adadelta.
 
 use crate::error::Result;
 use crate::nn::Param;
@@ -19,7 +8,7 @@ use super::adam::blend;
 use super::state::place;
 use super::{Optimizer, OptimizerState};
 
-/// Adagrad: per-coordinate steps that shrink with accumulated use.
+/// Adagrad. Steps shrink as squared gradients accumulate.
 pub struct Adagrad {
     params: Vec<Param>,
     accumulator: Vec<Option<Tensor>>,
@@ -55,8 +44,6 @@ impl Optimizer for Adagrad {
             }
             let Some(grad) = param.grad() else { continue };
 
-            // The accumulator is a *sum*, not an average — that monotone growth
-            // is Adagrad's defining property and its known flaw.
             let accumulated = match &self.accumulator[index] {
                 Some(prior) => prior.add(&grad.square()),
                 None => grad.square(),
@@ -93,10 +80,7 @@ impl Optimizer for Adagrad {
     }
 }
 
-/// Adadelta: Adagrad with a window, and no learning rate to tune.
-///
-/// `lr` survives as a final multiplier for the rare case it helps; the
-/// canonical method uses 1.0, and that is the default.
+/// Adadelta: Adagrad with an exponential window. `lr` defaults to 1.0.
 pub struct Adadelta {
     params: Vec<Param>,
     square_avg: Vec<Option<Tensor>>,
@@ -148,8 +132,7 @@ impl Optimizer for Adadelta {
 
             let square = blend(self.square_avg[index].as_ref(), &grad.square(), self.rho);
 
-            // The eps *inside* both roots doubles as the bootstrap: on the very
-            // first step E[Δx²] is zero and the ratio would otherwise be too.
+            // eps inside the roots also bootstraps step one, where E[dx^2] is zero.
             let previous_delta = self.delta_avg[index].as_ref();
             let numerator = match previous_delta {
                 Some(delta) => delta.add_scalar(self.eps).sqrt(),
@@ -197,9 +180,6 @@ impl Optimizer for Adadelta {
 mod tests {
     use super::*;
 
-    /// Two hand-computed Adagrad steps with g = 2 each time and eps = 0:
-    /// step 1 divides by √4 = 2, step 2 by √8, so the second step is smaller
-    /// by exactly √2.
     #[test]
     fn adagrad_steps_shrink_by_the_accumulated_root() {
         let param = Param::new(Tensor::from_vec(vec![0.0], &[1]));
@@ -222,15 +202,13 @@ mod tests {
         );
     }
 
-    /// Adadelta's step size is self-tuning: with lr = 1 and a constant
-    /// gradient it settles near √eps-scale moves that keep making progress.
     #[test]
     fn adadelta_makes_progress_without_a_learning_rate() {
         let param = Param::new(Tensor::from_vec(vec![5.0], &[1]));
         let mut opt = Adadelta::new(vec![param.clone()]);
 
         for _ in 0..200 {
-            // d/dx (x²/2) = x: minimize a bowl centred at zero.
+            // gradient of x^2 / 2
             param.set_grad(param.value());
             opt.step();
         }

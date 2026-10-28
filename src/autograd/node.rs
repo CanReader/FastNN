@@ -4,33 +4,29 @@ use std::sync::{Arc, Mutex};
 
 use crate::tensor::Tensor;
 
-/// How one operation turns the gradient of its output into gradients of its inputs.
+/// Turns the gradient of an op's output into gradients of its inputs.
 ///
-/// A rule owns whatever the forward pass needs to save (operands, masks, pooling
-/// indices). Save *detached* tensors — a saved value that still carries its own
-/// node would pin the graph that produced it.
+/// Save detached tensors in a rule, or the saved value pins the graph behind it.
 pub trait Backward: Send + Sync {
-    /// Gradients for each input, in the same order as [`Op::inputs`].
+    /// One gradient per input, in the order of [`Op::inputs`].
     fn backward(&self, grad: &Tensor) -> Vec<Tensor>;
 
-    /// Shown in panics and graph dumps.
+    /// Used in panic messages.
     fn name(&self) -> &'static str;
 }
 
-/// An operation that produced a tensor, plus the tensors it consumed.
+/// The rule that produced a tensor and the tensors it consumed.
 pub struct Op {
     pub rule: Box<dyn Backward>,
     pub inputs: Vec<Tensor>,
 }
 
-/// A tensor's link into the graph. `None` on a tensor means "constant data" —
-/// gradient flow stops there.
+/// A tensor's link into the graph. Tensors without one are constants.
 #[derive(Clone)]
 pub enum Node {
-    /// A learnable value. Gradient reaching it lands in the shared slot, which
-    /// is the same slot the optimizer reads.
+    /// A parameter. Its gradient lands in the slot the optimizer reads.
     Leaf(GradSlot),
-    /// An intermediate value. Gradient reaching it is pushed further back.
+    /// An intermediate value.
     Op(Arc<Op>),
 }
 
@@ -42,10 +38,8 @@ impl Node {
         }))
     }
 
-    /// Stable identity, used to accumulate gradients per node during backward.
-    ///
-    /// Two handles to the same parameter share a `GradSlot` and therefore an id,
-    /// which is exactly what makes weight tying work.
+    /// Identity for accumulating gradients. Handles to the same parameter share
+    /// a slot and so an id, which is what makes weight tying work.
     pub fn id(&self) -> NodeId {
         match self {
             Node::Leaf(slot) => NodeId(Arc::as_ptr(&slot.0) as *const () as usize),
@@ -57,7 +51,7 @@ impl Node {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct NodeId(usize);
 
-/// The gradient of one learnable tensor, shared between the model and the optimizer.
+/// A parameter's gradient, shared between the model and the optimizer.
 #[derive(Clone, Default)]
 pub struct GradSlot(Arc<Mutex<Option<Tensor>>>);
 
@@ -66,11 +60,8 @@ impl GradSlot {
         GradSlot::default()
     }
 
-    /// Add `grad` to whatever is already there.
-    ///
-    /// Accumulating rather than overwriting is what lets a parameter be used
-    /// twice in one forward pass, and what makes gradient accumulation across
-    /// micro-batches work without extra bookkeeping.
+    /// Add to the stored gradient. Adding (not overwriting) covers parameters
+    /// used twice and accumulation across micro-batches.
     pub fn accumulate(&self, grad: Tensor) {
         let mut slot = self.0.lock().unwrap();
         *slot = Some(match slot.take() {

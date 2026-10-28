@@ -1,11 +1,6 @@
-//! GPU layer: device setup, memory, and the kernel bindings.
+//! GPU layer: device setup, memory ([`buffer`]), raw bindings ([`ffi`]) and safe wrappers ([`kernels`]).
 //!
-//! - [`ffi`] — raw `extern "C"` declarations, one per symbol in `cuda/kernels.cu`
-//! - [`kernels`] — safe wrappers that allocate outputs and check status codes
-//! - [`buffer`] — [`CudaBuffer`], RAII GPU memory over a caching allocator
-//!
-//! In a `--no-default-features` build, `cuda/stubs.c` supplies the symbols so
-//! everything links; [`device_count`] then reports 0 and CPU paths run instead.
+//! Without the `cuda` feature, `cuda/stubs.c` stands in for the kernels and [`device_count`] is 0.
 
 pub mod buffer;
 pub mod ffi;
@@ -17,7 +12,7 @@ use std::sync::OnceLock;
 
 use crate::error::{Error, Result};
 
-/// Initialise the CUDA context on `device`. Idempotent; safe to call per tensor.
+/// Sets up the CUDA context on `device`. Only the first call does anything.
 pub fn init(device: usize) -> Result<()> {
     static INIT: OnceLock<std::result::Result<(), String>> = OnceLock::new();
     INIT.get_or_init(|| {
@@ -32,12 +27,12 @@ pub fn init(device: usize) -> Result<()> {
     .map_err(Error::Cuda)
 }
 
-/// Number of CUDA devices visible to the process. 0 in a CPU-only build.
+/// Number of visible CUDA devices, 0 in a CPU-only build.
 pub fn device_count() -> usize {
     unsafe { ffi::fastnn_cuda_device_count().max(0) as usize }
 }
 
-/// Block until every queued kernel has finished.
+/// Waits for every queued kernel to finish.
 pub fn synchronize() -> Result<()> {
     match unsafe { ffi::fastnn_cuda_synchronize() } {
         0 => Ok(()),

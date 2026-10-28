@@ -1,15 +1,9 @@
-//! An exponential moving average of the weights themselves.
-//!
-//! SGD's iterates orbit the minimum rather than landing on it; their running
-//! average sits closer to the centre of that orbit (Polyak averaging). Kept as
-//! a shadow copy with decay d, updated after each optimizer step, the average
-//! is what you *evaluate and ship* while the raw weights keep training —
-//! standard practice for diffusion models and GANs, cheap insurance elsewhere.
+//! Exponential moving average of the weights, for evaluating and shipping.
 
 use crate::nn::Param;
 use crate::tensor::Tensor;
 
-/// Shadow weights: `shadow ← d·shadow + (1−d)·param` after every step.
+/// Shadow weights: `shadow = d * shadow + (1 - d) * param` after every step.
 ///
 /// ```
 /// # use fastnn::prelude::*;
@@ -33,14 +27,13 @@ pub struct Ema {
 }
 
 impl Ema {
-    /// Typical decays are 0.99–0.9999; higher = smoother but slower to follow.
+    /// `decay` is usually between 0.99 and 0.9999.
     pub fn new(params: Vec<Param>, decay: f32) -> Ema {
         assert!(
             (0.0..1.0).contains(&decay),
             "decay must be in [0, 1), got {decay}"
         );
-        // Seeding the shadow at the current weights (not zero) avoids a long
-        // bias toward the origin that 1/(1−d) steps would otherwise carry.
+        // Seeded at the current weights, not zero, to avoid a long bias toward the origin.
         let shadow = params.iter().map(|p| p.value().detach()).collect();
         Ema {
             params,
@@ -59,11 +52,7 @@ impl Ema {
         }
     }
 
-    /// Exchange model weights and averaged weights.
-    ///
-    /// Symmetric on purpose: one call to evaluate the average, a second to put
-    /// the raw training weights back. Being a swap rather than a copy, nothing
-    /// is lost if the calls are unbalanced — the other set is always held here.
+    /// Swap the model's weights with the averaged ones. Call again to swap back.
     pub fn swap(&mut self) {
         for (shadow, param) in self.shadow.iter_mut().zip(&self.params) {
             let raw = param.value().detach();
@@ -72,7 +61,7 @@ impl Ema {
         }
     }
 
-    /// The averaged tensors, in parameter order — for saving a shipped model.
+    /// The averaged tensors in parameter order.
     pub fn averaged(&self) -> &[Tensor] {
         &self.shadow
     }
@@ -82,8 +71,6 @@ impl Ema {
 mod tests {
     use super::*;
 
-    /// Hand-computed: shadow seeds at 1, weight jumps to 3, one update with
-    /// d = 0.9 gives 0.9·1 + 0.1·3 = 1.2.
     #[test]
     fn update_follows_the_definition_exactly() {
         let param = Param::new(Tensor::from_vec(vec![1.0], &[1]));

@@ -1,15 +1,11 @@
-//! Printing tensors.
-//!
-//! `{:?}` gives the one-line summary you want in a log; `{}` prints values, with
-//! long runs elided so a debug print never floods a terminal.
+//! `{:?}` is a one-line summary, `{}` prints the values (long runs elided).
 
 use std::fmt;
 
 use super::Tensor;
 
-/// Values shown at each end before eliding the middle.
+/// Values kept at each end of an elided run.
 const EDGE: usize = 3;
-/// Rows shown before eliding the rest of a matrix.
 const MAX_ROWS: usize = 6;
 
 impl fmt::Debug for Tensor {
@@ -50,8 +46,7 @@ impl fmt::Display for Tensor {
                 }
                 write!(f, "]  {:?}", self)
             }
-            // Higher ranks have no layout that reads well in a terminal; the
-            // summary plus the first few values is more useful than a wall of text.
+            // no layout reads well past 2-D, so print the flat edges
             _ => {
                 write!(f, "[")?;
                 write_row(f, &data)?;

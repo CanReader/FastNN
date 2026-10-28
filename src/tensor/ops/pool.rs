@@ -1,7 +1,4 @@
-//! 2-D pooling over `[N, C, H, W]` tensors.
-//!
-//! Pooling is a reduction with a routing decision, so unlike convolution it does
-//! not reduce to a matrix multiply — each variant carries its own gradient rule.
+//! 2-D pooling over `[N, C, H, W]`. Each variant has its own gradient rule.
 
 use std::ops::Range;
 
@@ -11,10 +8,7 @@ use crate::tensor::Tensor;
 use super::conv::Window;
 
 impl Tensor {
-    /// Take the largest value in each window.
-    ///
-    /// The backward pass needs to know *which* input won, so the forward saves
-    /// one flat index per output element.
+    /// Largest value in each window. Saves the winning index for the backward.
     pub fn max_pool2d(&self, window: Window) -> Tensor {
         let (n, c, h, w) = self.expect_nchw("max_pool2d");
         let (out_h, out_w) = window.output_size(h, w);
@@ -47,7 +41,7 @@ impl Tensor {
             .with_grad(&[self], || MaxPool2dBackward { shape, winners })
     }
 
-    /// Average the values in each window, counting only real pixels (not padding).
+    /// Average of each window, padding not counted.
     pub fn avg_pool2d(&self, window: Window) -> Tensor {
         let (n, c, h, w) = self.expect_nchw("avg_pool2d");
         let (out_h, out_w) = window.output_size(h, w);
@@ -74,10 +68,7 @@ impl Tensor {
             .with_grad(&[self], || AvgPool2dBackward { shape, window })
     }
 
-    /// Average into a fixed `(height, width)` output, whatever the input size.
-    ///
-    /// `(1, 1)` is global average pooling — the usual bridge from a conv stack
-    /// to a classifier head.
+    /// Average into a fixed `(height, width)` output. `(1, 1)` is global pooling.
     pub fn adaptive_avg_pool2d(&self, output: (usize, usize)) -> Tensor {
         let (n, c, h, w) = self.expect_nchw("adaptive_avg_pool2d");
         let (out_h, out_w) = output;

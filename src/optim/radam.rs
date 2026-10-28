@@ -1,19 +1,7 @@
-//! RAdam: Adam with its warmup requirement solved in closed form.
+//! RAdam (Liu et al., 2020): Adam with a rectified step, so it needs no warmup.
 //!
-//! Adam's variance estimate `v` is built from very few samples early in
-//! training, so `1/√v̂` is itself high-variance and the first updates can be
-//! wildly mis-scaled — the practical reason Adam is run behind a warmup
-//! schedule. Liu et al. (2020) computed that variance analytically: tracking
-//! the effective sample size ρ_t of the exponential average, the adaptive step
-//! can be *rectified* by
-//!
-//! ```text
-//! r_t = √( (ρ_t−4)(ρ_t−2)ρ∞ / ((ρ∞−4)(ρ∞−2)ρ_t) ),   ρ∞ = 2/(1−β₂) − 1
-//! ```
-//!
-//! which is exactly the factor that makes the adaptive step's variance match
-//! its late-training value. While ρ_t ≤ 4 the variance is undefined — too few
-//! samples — and RAdam falls back to plain momentum SGD for those steps.
+//! While the variance estimate has too few samples (rho_t <= 4) it falls back
+//! to momentum SGD.
 
 use crate::error::Result;
 use crate::nn::Param;
@@ -69,8 +57,7 @@ impl RAdam {
         self
     }
 
-    /// The rectification factor for step `t`, or `None` while the variance of
-    /// the adaptive step is still undefined (ρ_t ≤ 4).
+    /// The rectification factor for step `t`, or `None` while rho_t <= 4.
     fn rectifier(&self, t: u64) -> Option<f32> {
         let rho_inf = 2.0 / (1.0 - self.beta2) - 1.0;
         let beta2_t = self.beta2.powi(t as i32);
@@ -107,7 +94,6 @@ impl Optimizer for RAdam {
                     mean.div(&variance.sqrt().add_scalar(self.eps))
                         .mul_scalar(r)
                 }
-                // Too few samples to trust the variance: momentum SGD instead.
                 None => mean,
             };
 
@@ -154,9 +140,7 @@ impl Optimizer for RAdam {
 mod tests {
     use super::*;
 
-    /// With β₂ = 0.999: ρ∞ = 1999, and ρ_t ≤ 4 for the first four steps — the
-    /// published fallback window. Step 5 must rectify, and with r < 1: the
-    /// rectified step is *smaller* than plain Adam's would be.
+    /// With beta2 = 0.999 the first four steps fall back, step 5 rectifies.
     #[test]
     fn rectifier_switches_on_at_step_five_and_damps() {
         let opt = RAdam::new(vec![], 1e-3);
@@ -168,7 +152,6 @@ mod tests {
         }
         let r = opt.rectifier(5).expect("step 5 should rectify");
         assert!(r > 0.0 && r < 1.0, "early rectifier should damp, got {r}");
-        // Late in training the correction must vanish: r → 1.
         let late = opt.rectifier(100_000).unwrap();
         assert!(
             (late - 1.0).abs() < 0.01,
@@ -176,8 +159,6 @@ mod tests {
         );
     }
 
-    /// The first step is pure bias-corrected momentum: with β₁ = 0.9 and g = 2,
-    /// m̂₁ = g exactly, so the parameter moves by lr·g.
     #[test]
     fn first_step_is_exactly_momentum_sgd() {
         let param = Param::new(Tensor::from_vec(vec![1.0], &[1]));

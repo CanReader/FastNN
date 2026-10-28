@@ -10,7 +10,7 @@ pub struct MaxPool2d {
 }
 
 impl MaxPool2d {
-    /// A `kernel × kernel` window that does not overlap — the usual downsampler.
+    /// A non-overlapping `kernel × kernel` window.
     pub fn new(kernel: usize) -> MaxPool2d {
         MaxPool2d {
             window: Window::square(kernel, kernel, 0),

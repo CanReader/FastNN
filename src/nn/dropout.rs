@@ -7,19 +7,15 @@ use crate::tensor::Tensor;
 
 use super::module::Module;
 
-/// Zero each element with probability `p` during training, scaling the survivors
-/// by `1/(1-p)` so the expected activation is unchanged.
-///
-/// That rescaling is what lets eval mode be a no-op: the network sees the same
-/// average signal either way. Implemented as a multiply by a random mask, so the
-/// gradient is routed to exactly the units that survived.
+/// Zero each element with probability `p` while training, scaling survivors by
+/// `1/(1-p)` so eval mode can be a no-op.
 pub struct Dropout {
     p: f32,
     training: AtomicBool,
 }
 
 impl Dropout {
-    /// Panics unless `p` is in `[0, 1)` — `p = 1` would zero everything.
+    /// Panics unless `p` is in `[0, 1)`.
     pub fn new(p: f32) -> Dropout {
         assert!(
             (0.0..1.0).contains(&p),

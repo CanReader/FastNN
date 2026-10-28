@@ -1,8 +1,5 @@
-//! Reductions over all elements or along one axis.
-//!
-//! `sum` and `mean` are differentiable. `max`, `min`, and `argmax` return plain
-//! numbers rather than tensors — they are selection, not arithmetic, and giving
-//! them a tensor type would suggest a gradient they do not have.
+//! Reductions over everything or along one axis. `max`, `min` and `argmax`
+//! return plain numbers, since they are selections with no gradient.
 
 use crate::autograd::ops::reduce::{MeanBackward, SumAxisBackward, SumBackward};
 use crate::cuda::kernels;

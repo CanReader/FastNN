@@ -1,20 +1,11 @@
-//! The safetensors interchange format — how weights arrive from elsewhere.
+//! Reading and writing safetensors.
 //!
-//! The format is deliberately simple: an 8-byte little-endian header length, a
-//! JSON header mapping each tensor name to `{dtype, shape, data_offsets}`, and
-//! the raw tensor bytes. No code execution, no pickle — which is exactly why
-//! the wider ecosystem standardized on it for distributing weights.
+//! Writes `F32`. Reads `F32`, `F16`, and `BF16`, widened to `f32`. Loading is
+//! partial: the [`LoadReport`] lists what was missing or unused.
 //!
 //! ```text
-//! u64 header_len │ {"w": {"dtype":"F32","shape":[2,3],"data_offsets":[0,24]}, …} │ data…
+//! u64 header_len | {"w": {"dtype":"F32","shape":[2,3],"data_offsets":[0,24]}, ...} | data
 //! ```
-//!
-//! Writing always stores `F32`, FastNN's compute type. Reading additionally
-//! accepts `F16` and `BF16`, widening on load — exact, since every 16-bit
-//! float is representable in `f32`. Loading is *partial by design*: what
-//! matches is loaded, and the [`LoadReport`] names what was missing and what
-//! went unused, because a checkpoint from another framework rarely aligns
-//! perfectly on the first try and "which keys?" is the whole debugging session.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -25,13 +16,12 @@ use crate::tensor::Tensor;
 
 use super::half::{f32_from_bf16, f32_from_f16};
 
-/// What a partial load actually did. Empty `missing` and `unexpected` mean the
-/// file and the model agreed exactly.
+/// What a partial load did. Empty `missing` and `unexpected` mean an exact match.
 #[derive(Debug, Default)]
 pub struct LoadReport {
     /// Parameters and buffers that received values.
     pub loaded: Vec<String>,
-    /// Model tensors the file had nothing for — they keep their current values.
+    /// Model tensors absent from the file. They keep their values.
     pub missing: Vec<String>,
     /// File tensors no model tensor claimed.
     pub unexpected: Vec<String>,
@@ -39,7 +29,6 @@ pub struct LoadReport {
 
 /// Write a module's parameters and buffers as `F32` safetensors.
 pub fn save_safetensors(module: &dyn Module, path: impl AsRef<Path>) -> Result<()> {
-    // BTreeMap for a stable on-disk order, as the .fdl writer does.
     let mut tensors: BTreeMap<String, Tensor> = BTreeMap::new();
     for (name, param) in module.named_parameters() {
         tensors.insert(name, param.value().cpu());
@@ -51,7 +40,7 @@ pub fn save_safetensors(module: &dyn Module, path: impl AsRef<Path>) -> Result<(
     let mut header = String::from("{");
     let mut offset = 0usize;
     for (index, (name, tensor)) in tensors.iter().enumerate() {
-        let bytes = tensor.numel() * 4;
+        let bytes = tensor.numel() * std::mem::size_of::<f32>();
         if index > 0 {
             header.push(',');
         }
@@ -81,17 +70,13 @@ pub fn save_safetensors(module: &dyn Module, path: impl AsRef<Path>) -> Result<(
 
 /// Load matching tensors from a safetensors file into a module.
 ///
-/// Shapes must agree wherever a name matches — that is an error, not a report
-/// entry, because silently skipping a shape clash loads a model that *looks*
-/// initialized. Names that simply do not match are reported and skipped.
+/// A shape mismatch on a matching name is an error. Unmatched names are only
+/// reported.
 pub fn load_safetensors(module: &dyn Module, path: impl AsRef<Path>) -> Result<LoadReport> {
     load_safetensors_renamed(module, path, &HashMap::new())
 }
 
-/// [`load_safetensors`] through a name map: `file key → FastNN parameter path`.
-///
-/// The declarative escape hatch for foreign checkpoints — import logic becomes
-/// a table (`"transformer.h.0.attn.c_attn.weight"` → `"blocks.0.…"`), not code.
+/// [`load_safetensors`] with a map from file key to FastNN parameter path.
 pub fn load_safetensors_renamed(
     module: &dyn Module,
     path: impl AsRef<Path>,
@@ -100,7 +85,7 @@ pub fn load_safetensors_renamed(
     let bytes = std::fs::read(path)?;
     let (entries, data) = parse_file(&bytes)?;
 
-    // Index by the *effective* name: the mapping applied to the file's keys.
+    // Keyed by the name after renaming.
     let mut by_name: HashMap<&str, &Entry> = HashMap::new();
     for entry in &entries {
         let effective = rename
@@ -154,8 +139,6 @@ pub fn load_safetensors_renamed(
     Ok(report)
 }
 
-// ── The header ───────────────────────────────────────────────────────────────
-
 #[derive(Debug, PartialEq)]
 enum Dtype {
     F32,
@@ -205,7 +188,7 @@ fn bad(message: impl Into<String>) -> Error {
     Error::Checkpoint(format!("safetensors: {}", message.into()))
 }
 
-/// Split a file into validated header entries and the data section.
+/// Split a file into validated entries and the data section.
 fn parse_file(bytes: &[u8]) -> Result<(Vec<Entry>, &[u8])> {
     if bytes.len() < 8 {
         return Err(bad("file shorter than its header length field"));
@@ -244,11 +227,8 @@ fn parse_file(bytes: &[u8]) -> Result<(Vec<Entry>, &[u8])> {
     Ok((entries, data))
 }
 
-/// A hand-rolled parser for exactly the JSON the format specifies: one flat
-/// object of tensor entries plus an optional string-to-string `__metadata__`.
-///
-/// Small enough to read in one sitting on purpose — the alternative is a JSON
-/// dependency for one fixed schema.
+/// Minimal parser for the safetensors header: a flat object of tensor entries
+/// plus an optional string-to-string `__metadata__`.
 struct Header<'a> {
     bytes: &'a [u8],
     pos: usize,
@@ -277,20 +257,13 @@ impl<'a> Header<'a> {
             } else {
                 entries.push(self.entry(name)?);
             }
-            match self.next()? {
-                b',' => continue,
-                b'}' => return Ok(entries),
-                other => {
-                    return Err(bad(format!(
-                        "expected ',' or '}}', found '{}'",
-                        other as char
-                    )))
-                }
+            if self.list_end(b'}')? {
+                return Ok(entries);
             }
         }
     }
 
-    /// `{"dtype": "...", "shape": [...], "data_offsets": [a, b]}`, keys in any order.
+    /// `{"dtype": "...", "shape": [...], "data_offsets": [a, b]}` in any key order.
     fn entry(&mut self, name: String) -> Result<Entry> {
         let (mut dtype, mut shape, mut offsets) = (None, None, None);
         self.expect(b'{')?;
@@ -320,15 +293,8 @@ impl<'a> Header<'a> {
                 }
                 other => return Err(bad(format!("unknown key '{other}' in '{name}'"))),
             }
-            match self.next()? {
-                b',' => continue,
-                b'}' => break,
-                other => {
-                    return Err(bad(format!(
-                        "expected ',' or '}}', found '{}'",
-                        other as char
-                    )))
-                }
+            if self.list_end(b'}')? {
+                break;
             }
         }
         match (dtype, shape, offsets) {
@@ -344,7 +310,7 @@ impl<'a> Header<'a> {
         }
     }
 
-    /// `[1, 2, 3]` (or `[]`), as machine sizes.
+    /// `[1, 2, 3]` or `[]`.
     fn numbers(&mut self) -> Result<Vec<usize>> {
         let mut values = Vec::new();
         self.expect(b'[')?;
@@ -354,15 +320,8 @@ impl<'a> Header<'a> {
         }
         loop {
             values.push(self.number()?);
-            match self.next()? {
-                b',' => continue,
-                b']' => return Ok(values),
-                other => {
-                    return Err(bad(format!(
-                        "expected ',' or ']', found '{}'",
-                        other as char
-                    )))
-                }
+            if self.list_end(b']')? {
+                return Ok(values);
             }
         }
     }
@@ -382,7 +341,7 @@ impl<'a> Header<'a> {
             .map_err(|_| bad("number too large"))
     }
 
-    /// A JSON string with the standard escapes, including `\uXXXX` pairs.
+    /// A JSON string, including `\uXXXX` surrogate pairs.
     fn string(&mut self) -> Result<String> {
         self.expect(b'"')?;
         let mut out = String::new();
@@ -403,7 +362,6 @@ impl<'a> Header<'a> {
                 },
                 byte if byte < 0x20 => return Err(bad("raw control character in string")),
                 byte => {
-                    // Re-assemble multi-byte UTF-8 (the header is validated UTF-8).
                     let width = match byte {
                         0x00..=0x7F => 1,
                         0xC0..=0xDF => 2,
@@ -420,7 +378,6 @@ impl<'a> Header<'a> {
 
     fn unicode_escape(&mut self) -> Result<char> {
         let unit = self.hex4()?;
-        // Surrogate pair: a high half must be followed by an escaped low half.
         if (0xD800..0xDC00).contains(&unit) {
             if self.raw_byte()? != b'\\' || self.raw_byte()? != b'u' {
                 return Err(bad("lone high surrogate"));
@@ -446,7 +403,7 @@ impl<'a> Header<'a> {
         Ok(value)
     }
 
-    /// `{"key": "value", ...}` — the metadata object, values discarded.
+    /// Skip the `__metadata__` object.
     fn skip_string_object(&mut self) -> Result<()> {
         self.expect(b'{')?;
         if self.peek()? == b'}' {
@@ -457,16 +414,21 @@ impl<'a> Header<'a> {
             self.string()?;
             self.expect(b':')?;
             self.string()?;
-            match self.next()? {
-                b',' => continue,
-                b'}' => return Ok(()),
-                other => {
-                    return Err(bad(format!(
-                        "expected ',' or '}}', found '{}'",
-                        other as char
-                    )))
-                }
+            if self.list_end(b'}')? {
+                return Ok(());
             }
+        }
+    }
+
+    /// Consume a `,` (more to come, false) or `close` (done, true).
+    fn list_end(&mut self, close: u8) -> Result<bool> {
+        match self.next()? {
+            b',' => Ok(false),
+            c if c == close => Ok(true),
+            other => Err(bad(format!(
+                "expected ',' or '{}', found '{}'",
+                close as char, other as char
+            ))),
         }
     }
 
@@ -490,7 +452,7 @@ impl<'a> Header<'a> {
         Ok(byte)
     }
 
-    /// The next byte with no whitespace skipping — inside strings, spaces count.
+    /// The next byte without skipping whitespace, for use inside strings.
     fn raw_byte(&mut self) -> Result<u8> {
         let byte = self
             .bytes

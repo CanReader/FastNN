@@ -1,16 +1,16 @@
-//! Fine-tuning: pretrain on one task, freeze the backbone, retrain a new head
-//! on another.
+//! Pretrain on quadrant classification, freeze the backbone, train a new head
+//! for inside/outside the unit circle.
 //!
 //!     cargo run --example finetune --release
-//!
-//! Task A classifies 2-D points by quadrant; task B by whether they fall inside
-//! the unit circle. The backbone's features transfer, so the second task trains
-//! a 34-parameter head instead of a whole network — and because frozen
-//! parameters hand out detached tensors, the backward pass never even reaches
-//! the backbone.
 
 use fastnn::nn::module::scoped;
 use fastnn::prelude::*;
+
+const SEED: u64 = 11;
+const SAMPLES: usize = 512;
+const HIDDEN: usize = 16;
+const LR: f32 = 1e-2;
+const STEPS: usize = 300;
 
 struct Net {
     backbone: Sequential,
@@ -21,11 +21,11 @@ impl Net {
     fn new(classes: usize) -> Net {
         Net {
             backbone: Sequential::new()
-                .add(Linear::new(2, 16))
+                .add(Linear::new(2, HIDDEN))
                 .add(Tanh)
-                .add(Linear::new(16, 16))
+                .add(Linear::new(HIDDEN, HIDDEN))
                 .add(Tanh),
-            head: Linear::new(16, classes),
+            head: Linear::new(HIDDEN, classes),
         }
     }
 }
@@ -41,7 +41,6 @@ impl Module for Net {
     }
 }
 
-/// 2-D points and their labels under `rule`.
 fn dataset(n: usize, rule: impl Fn(f32, f32) -> usize) -> (Tensor, Vec<usize>) {
     let coords = fastnn::rng::uniform(n * 2, -1.5, 1.5);
     let labels = coords.chunks(2).map(|p| rule(p[0], p[1])).collect();
@@ -55,8 +54,7 @@ fn accuracy(model: &impl Module, inputs: &Tensor, labels: &[usize]) -> f32 {
 }
 
 fn fit(model: &impl Module, inputs: &Tensor, labels: &[usize], steps: usize) {
-    // trainable_parameters: after freezing, this is just the head.
-    let mut opt = Adam::new(model.trainable_parameters(), 1e-2);
+    let mut opt = Adam::new(model.trainable_parameters(), LR);
     for _ in 0..steps {
         let loss = cross_entropy(&model.forward(inputs), labels);
         opt.zero_grad();
@@ -66,32 +64,30 @@ fn fit(model: &impl Module, inputs: &Tensor, labels: &[usize], steps: usize) {
 }
 
 fn main() -> fastnn::Result<()> {
-    manual_seed(11);
+    manual_seed(SEED);
     let checkpoint = std::env::temp_dir().join("finetune_backbone.fdl");
 
-    // ── Pretrain on task A: which quadrant is the point in? ──────────────────
     let quadrant = |x: f32, y: f32| (x > 0.0) as usize + 2 * ((y > 0.0) as usize);
-    let (inputs, labels) = dataset(512, quadrant);
+    let (inputs, labels) = dataset(SAMPLES, quadrant);
 
     let pretrained = Net::new(4);
-    fit(&pretrained, &inputs, &labels, 300);
+    fit(&pretrained, &inputs, &labels, STEPS);
     println!(
         "task A (quadrants):    {:.1}%",
         100.0 * accuracy(&pretrained, &inputs, &labels)
     );
     save(&pretrained, &checkpoint)?;
 
-    // ── Fine-tune on task B: inside or outside the unit circle? ──────────────
     let circle = |x: f32, y: f32| (x * x + y * y < 1.0) as usize;
-    let (inputs, labels) = dataset(512, circle);
+    let (inputs, labels) = dataset(SAMPLES, circle);
 
     let mut model = Net::new(4);
     load(&model, &checkpoint)?;
     model.backbone.freeze();
-    model.head = Linear::new(16, 2); // fresh head for the new label space
+    model.head = Linear::new(HIDDEN, 2);
 
     let before = accuracy(&model, &inputs, &labels);
-    fit(&model, &inputs, &labels, 300);
+    fit(&model, &inputs, &labels, STEPS);
     println!("task B before head:    {:.1}%", 100.0 * before);
     println!(
         "task B after head:     {:.1}%",

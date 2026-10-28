@@ -1,7 +1,5 @@
-//! MNIST handwritten digits.
-//!
-//! Downloads the four IDX files on first use and caches them under
-//! `$FASTNN_DATA_DIR/mnist` (or `~/.fastnn/datasets/mnist`).
+//! MNIST digits, downloaded on first use into `$FASTNN_DATA_DIR/mnist` or
+//! `~/.fastnn/datasets/mnist`.
 
 use std::fs;
 use std::io::{Read, Write};
@@ -15,6 +13,10 @@ use super::dataset::Dataset;
 const MIRROR: &str = "https://ossci-datasets.s3.amazonaws.com/mnist";
 const IMAGE_MAGIC: u32 = 0x0000_0803;
 const LABEL_MAGIC: u32 = 0x0000_0801;
+const SIDE: usize = 28;
+const PIXELS: usize = SIDE * SIDE;
+const IMAGE_HEADER: usize = 16;
+const LABEL_HEADER: usize = 8;
 
 /// Which half of the dataset to load.
 #[derive(Clone, Copy, Debug)]
@@ -32,9 +34,7 @@ impl Split {
     }
 }
 
-/// 28×28 grayscale digits with labels 0–9.
-///
-/// Images are `[1, 28, 28]` scaled to `[0, 1]`; targets are class indices.
+/// 28x28 grayscale digits scaled to `[0, 1]`, with class index targets.
 ///
 /// ```no_run
 /// use fastnn::prelude::*;
@@ -76,12 +76,12 @@ impl Mnist {
         })
     }
 
-    /// Every image as one `[N, 1, 28, 28]` tensor.
+    /// All images as one `[N, 1, 28, 28]` tensor.
     pub fn images(&self) -> Tensor {
-        Tensor::from_vec(self.images.clone(), &[self.len, 1, 28, 28])
+        Tensor::from_vec(self.images.clone(), &[self.len, 1, SIDE, SIDE])
     }
 
-    /// Every label as a class index.
+    /// All labels as class indices.
     pub fn labels(&self) -> Vec<usize> {
         self.labels.iter().map(|&v| v as usize).collect()
     }
@@ -93,7 +93,7 @@ impl Dataset for Mnist {
     }
 
     fn input_shape(&self) -> Vec<usize> {
-        vec![1, 28, 28]
+        vec![1, SIDE, SIDE]
     }
 
     fn target_shape(&self) -> Vec<usize> {
@@ -101,8 +101,8 @@ impl Dataset for Mnist {
     }
 
     fn write(&self, index: usize, input: &mut [f32], target: &mut [f32]) {
-        let start = index * 28 * 28;
-        input.copy_from_slice(&self.images[start..start + 28 * 28]);
+        let start = index * PIXELS;
+        input.copy_from_slice(&self.images[start..start + PIXELS]);
         target[0] = self.labels[index];
     }
 }
@@ -119,7 +119,7 @@ pub fn default_cache_dir() -> PathBuf {
         .join("mnist")
 }
 
-/// Fetch and decompress any of `files` that are not already cached.
+/// Download and decompress any of `files` not already cached.
 fn download_missing(cache: &Path, files: &[&str]) -> Result<()> {
     fs::create_dir_all(cache)?;
     for name in files {
@@ -152,16 +152,18 @@ fn parse_images(bytes: &[u8]) -> Result<(Vec<f32>, usize)> {
     let header = read_header(bytes, 4, IMAGE_MAGIC, "images")?;
     let (count, rows, cols) = (header[1], header[2], header[3]);
 
-    let expected = 16 + count * rows * cols;
+    let expected = IMAGE_HEADER + count * rows * cols;
     if bytes.len() != expected {
         return Err(Error::Dataset(format!(
             "mnist images: {} bytes, expected {expected}",
             bytes.len()
         )));
     }
-    // Scale to [0, 1]; unnormalized 0–255 inputs would saturate the first layer.
     Ok((
-        bytes[16..].iter().map(|&b| b as f32 / 255.0).collect(),
+        bytes[IMAGE_HEADER..]
+            .iter()
+            .map(|&b| b as f32 / 255.0)
+            .collect(),
         count,
     ))
 }
@@ -171,14 +173,17 @@ fn parse_labels(bytes: &[u8]) -> Result<(Vec<f32>, usize)> {
     let header = read_header(bytes, 2, LABEL_MAGIC, "labels")?;
     let count = header[1];
 
-    if bytes.len() != 8 + count {
+    if bytes.len() != LABEL_HEADER + count {
         return Err(Error::Dataset(format!(
             "mnist labels: {} bytes, expected {}",
             bytes.len(),
-            8 + count
+            LABEL_HEADER + count
         )));
     }
-    Ok((bytes[8..].iter().map(|&b| b as f32).collect(), count))
+    Ok((
+        bytes[LABEL_HEADER..].iter().map(|&b| b as f32).collect(),
+        count,
+    ))
 }
 
 /// Read `words` big-endian u32s and check the magic number.

@@ -1,8 +1,5 @@
-//! Derivatives of activations and the softmax family.
-//!
-//! Where `kernels.cu` has a fused backward kernel we use it; the host formula
-//! below it is both the CPU path and the reference the GPU kernel must match
-//! (see `tests/cuda_parity.rs`).
+//! Derivatives of activations and softmax. Fused GPU kernels are used where they
+//! exist, and the host formulas are the CPU path and the parity reference.
 
 use crate::autograd::Backward;
 use crate::cuda::{ffi, kernels};
@@ -11,7 +8,7 @@ use crate::tensor::Tensor;
 
 use super::unary::elementwise;
 
-/// Run a fused `(grad, saved) → grad_input` kernel when both live on the GPU.
+/// Run a fused backward kernel if both tensors are on the GPU.
 fn fused(grad: &Tensor, saved: &Tensor, kernel: ffi::BinaryKernel) -> Option<Tensor> {
     let (Storage::Cuda(g), Storage::Cuda(s)) = (grad.storage(), saved.storage()) else {
         return None;
@@ -40,7 +37,7 @@ impl Backward for ReluBackward {
     }
 }
 
-/// `d σ(x) = g · σ(1 - σ)` — in terms of the forward output.
+/// `d σ(x) = g · σ(1 - σ)`, in terms of the forward output.
 pub struct SigmoidBackward {
     pub output: Tensor,
 }
@@ -75,7 +72,7 @@ impl Backward for TanhBackward {
     }
 }
 
-/// `d gelu(x) = g · (Φ(x) + x·φ(x))`, the exact form matching the forward.
+/// `d gelu(x) = g · (Φ(x) + x·φ(x))`.
 pub struct GeluBackward {
     pub input: Tensor,
 }
@@ -129,8 +126,7 @@ impl Backward for LeakyReluBackward {
     }
 }
 
-/// `d softmax = s · (g - Σ(g·s))` per row — the Jacobian collapses to this
-/// because every output in a row depends on every input in that row.
+/// `d softmax = s · (g - Σ(g·s))` per row.
 pub struct SoftmaxBackward {
     pub output: Tensor,
 }

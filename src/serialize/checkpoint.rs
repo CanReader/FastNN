@@ -1,6 +1,4 @@
-//! Saving and loading model weights.
-//!
-//! ## File format (`.fdl`)
+//! Saving and loading model weights in the `.fdl` format.
 //!
 //! ```text
 //! magic "FDL\0"  u32
@@ -10,13 +8,9 @@
 //!     name_len   u32
 //!     name       name_len bytes, UTF-8
 //!     rank       u32
-//!     shape      rank × u32
-//!     data       numel × f32, little-endian
+//!     shape      rank x u32
+//!     data       numel x f32, little-endian
 //! ```
-//!
-//! Plain and self-describing: a checkpoint carries names and shapes, so loading
-//! into a changed model reports which tensor disagrees instead of silently
-//! filling weights with the wrong numbers.
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -30,10 +24,7 @@ use crate::tensor::Tensor;
 const MAGIC: u32 = 0x4644_4C00;
 const VERSION: u32 = 1;
 
-/// A named collection of tensors — what a saved model is.
-///
-/// `BTreeMap` so the on-disk order is stable and two checkpoints of the same
-/// model compare byte for byte.
+/// Named tensors. A `BTreeMap` keeps the file order stable.
 pub type Checkpoint = BTreeMap<String, Tensor>;
 
 /// Write a module's parameters and buffers to `path`.
@@ -57,8 +48,8 @@ pub fn save(module: &dyn Module, path: impl AsRef<Path>) -> Result<()> {
 
 /// Read `path` into a module's parameters and buffers.
 ///
-/// Every parameter the module declares must be present with a matching shape;
-/// extra tensors in the file are ignored.
+/// Every parameter must be present with a matching shape. Extra tensors in the
+/// file are ignored.
 pub fn load(module: &dyn Module, path: impl AsRef<Path>) -> Result<()> {
     let saved = load_tensors(path)?;
 
@@ -140,7 +131,7 @@ pub fn load_tensors(path: impl AsRef<Path>) -> Result<Checkpoint> {
     Ok(tensors)
 }
 
-/// Look up `name` and check it is the shape the model expects.
+/// Look up `name` and check its shape.
 fn take(saved: &Checkpoint, name: &str, expected: &[usize]) -> Result<Tensor> {
     let tensor = saved
         .get(name)

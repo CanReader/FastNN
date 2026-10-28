@@ -1,13 +1,9 @@
-//! Activations as layers, for use inside [`Sequential`](super::Sequential).
-//!
-//! Each one is a thin wrapper over the corresponding [`Tensor`] method — call
-//! that directly when you are writing a `forward` by hand.
+//! Activations as layers, thin wrappers over the [`Tensor`] methods.
 
 use crate::tensor::Tensor;
 
 use super::module::Module;
 
-/// Declare a stateless activation layer that forwards to one tensor method.
 macro_rules! activation {
     ($(#[$doc:meta])* $name:ident => $method:ident) => {
         $(#[$doc])*
@@ -27,17 +23,18 @@ activation!(/// `1 / (1 + e^-x)`.
             Sigmoid => sigmoid);
 activation!(/// Hyperbolic tangent.
             Tanh => tanh);
-activation!(/// Exact GELU — the transformer default.
+activation!(/// Exact GELU, the transformer default.
             GELU => gelu);
 activation!(/// SiLU / swish, `x · sigmoid(x)`.
             SiLU => silu);
 activation!(/// Softmax over the last dimension.
             ///
-            /// Not needed before [`cross_entropy`](super::cross_entropy), which
-            /// applies its own and is more stable for it.
+            /// Skip it before [`cross_entropy`](super::cross_entropy), which has its own.
             Softmax => softmax);
 
-/// ReLU with a non-zero slope for negative inputs, so units cannot go fully dead.
+const DEFAULT_SLOPE: f32 = 0.01;
+
+/// ReLU with a small slope for negative inputs.
 pub struct LeakyReLU {
     pub slope: f32,
 }
@@ -50,7 +47,9 @@ impl LeakyReLU {
 
 impl Default for LeakyReLU {
     fn default() -> Self {
-        LeakyReLU { slope: 0.01 }
+        LeakyReLU {
+            slope: DEFAULT_SLOPE,
+        }
     }
 }
 

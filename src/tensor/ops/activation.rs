@@ -1,7 +1,5 @@
-//! Activation functions and the softmax family.
-//!
-//! Softmax normalises over the **last** dimension. Anything with a different
-//! layout should `reshape` to `[rows, classes]` first — attention does exactly that.
+//! Activations and the softmax family. Softmax runs over the last dimension, so
+//! reshape to `[rows, classes]` first for other layouts.
 
 use crate::autograd::ops::activation::{
     GeluBackward, LeakyReluBackward, LogSoftmaxBackward, ReluBackward, SigmoidBackward,
@@ -35,7 +33,7 @@ impl Tensor {
         out.with_grad(&[self], || TanhBackward { output: saved })
     }
 
-    /// Exact GELU, `x · Φ(x)` — the transformer default.
+    /// Exact GELU, `x · Φ(x)`, the transformer default.
     pub fn gelu(&self) -> Tensor {
         unary_op(self, gelu_scalar, ffi::fastnn_cuda_gelu).with_grad(&[self], || GeluBackward {
             input: self.detach(),
@@ -94,8 +92,7 @@ impl Tensor {
         out.with_grad(&[self], || SoftmaxBackward { output: saved })
     }
 
-    /// `log(softmax(x))` over the last dimension, computed without the
-    /// intermediate exponential so large logits do not overflow.
+    /// `log(softmax(x))` over the last dimension, without the overflow-prone exp.
     pub fn log_softmax(&self) -> Tensor {
         let (rows, cols) = self.as_rows();
         let out = match self.storage() {
@@ -120,7 +117,7 @@ impl Tensor {
         out.with_grad(&[self], || LogSoftmaxBackward { output: saved })
     }
 
-    /// View the tensor as `(rows, last_dim)` — the layout every row-wise op uses.
+    /// The tensor as `(rows, last_dim)`.
     pub(crate) fn as_rows(&self) -> (usize, usize) {
         let cols = self.last_dim();
         (self.numel() / cols, cols)
@@ -135,7 +132,7 @@ fn gelu_scalar(x: f32) -> f32 {
     0.5 * x * (1.0 + libm::erff(x * std::f32::consts::FRAC_1_SQRT_2))
 }
 
-/// Largest value in a row; subtracting it keeps `exp` in range.
+// subtracted before exp so large logits do not overflow
 fn row_max(row: &[f32]) -> f32 {
     row.iter().copied().fold(f32::NEG_INFINITY, f32::max)
 }

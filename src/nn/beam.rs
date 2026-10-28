@@ -1,15 +1,6 @@
-//! Beam search decoding.
-//!
-//! Sampling explores; beam search commits. It keeps the `width` most probable
-//! partial sequences and extends each one step at a time, which finds higher
-//! total-probability outputs than greedy decoding — the best second token may
-//! hide behind the second-best first token. Width 1 *is* greedy decoding.
+//! Beam search decoding. Width 1 is greedy.
 
-/// Beam search over any autoregressive model.
-///
-/// The model appears only as a closure from a sequence to next-token logits,
-/// so this works with a [`TransformerStack`](super::TransformerStack), an RNN,
-/// or anything else that predicts one step at a time.
+/// Beam search over any model that maps a sequence to next-token logits.
 ///
 /// ```
 /// use fastnn::nn::BeamSearch;
@@ -28,7 +19,7 @@ pub struct BeamSearch {
     eos: Option<usize>,
 }
 
-/// One candidate sequence: the generated ids and their total log-probability.
+/// A candidate sequence and its total log-probability.
 struct Beam {
     generated: Vec<usize>,
     log_prob: f32,
@@ -36,8 +27,7 @@ struct Beam {
 }
 
 impl Beam {
-    /// Longer sequences accumulate more negative log-probability by sheer
-    /// length; dividing by `len^penalty` keeps them comparable to short ones.
+    /// Length-normalised, since long sequences always have lower raw log-probability.
     fn score(&self, length_penalty: f32) -> f32 {
         self.log_prob / (self.generated.len().max(1) as f32).powf(length_penalty)
     }
@@ -53,8 +43,7 @@ impl BeamSearch {
         }
     }
 
-    /// Exponent on length when comparing beams. 1.0 is per-token average;
-    /// below favours short outputs, above favours long ones.
+    /// Exponent on length when comparing beams. 1.0 is the per-token average.
     pub fn length_penalty(mut self, penalty: f32) -> BeamSearch {
         assert!(
             penalty > 0.0,
@@ -70,11 +59,8 @@ impl BeamSearch {
         self
     }
 
-    /// Generate up to `max_tokens` ids after `start`.
-    ///
-    /// `step` maps a full sequence (`start` plus everything generated so far)
-    /// to the logits for the next token. Returns the generated ids of the best
-    /// beam, without `start` and without the end-of-sequence token.
+    /// Generate up to `max_tokens` ids after `start`, without `start` or the eos token.
+    /// `step` maps the full sequence so far to next-token logits.
     pub fn decode(
         &self,
         start: &[usize],
@@ -95,7 +81,7 @@ impl BeamSearch {
             let mut candidates = Vec::new();
             for beam in &beams {
                 if beam.finished {
-                    // A finished beam still competes on score, unchanged.
+                    // finished beams keep competing on score
                     candidates.push(Beam {
                         generated: beam.generated.clone(),
                         log_prob: beam.log_prob,
@@ -108,8 +94,7 @@ impl BeamSearch {
                 sequence.extend_from_slice(&beam.generated);
                 let log_probs = log_softmax(&step(&sequence));
 
-                // Only the `width` best continuations of this beam can survive
-                // the global cut, so nothing else needs to be considered.
+                // only this beam's top `width` continuations can survive the global cut
                 let mut order: Vec<usize> = (0..log_probs.len()).collect();
                 order.sort_by(|&a, &b| log_probs[b].total_cmp(&log_probs[a]));
                 for &token in order.iter().take(self.width) {

@@ -1,21 +1,19 @@
-//! MNIST with a small convolutional network.
+//! MNIST with two conv blocks and a linear head, around 99% test accuracy.
 //!
-//!     cargo run --example mnist_cnn --release
-//!     cargo run --example mnist_cnn --release --features cuda
-//!
-//! Two conv blocks (convolution, batch norm, ReLU, max pool) then a linear head.
-//! Slower per step than the MLP but reaches ~99% test accuracy, because the
-//! convolutions reuse the same filters at every position instead of learning
-//! each pixel independently.
+//!     cargo run --example mnist_cnn --release [--features cuda]
 
 use fastnn::data::{Mnist, Split};
 use fastnn::prelude::*;
 
 const EPOCHS: usize = 2;
 const BATCH: usize = 64;
+const TEST_BATCH: usize = 500;
+const LR: f32 = 1e-3;
+const SEED: u64 = 42;
+const REPORT_EVERY: usize = 100;
 
 fn main() -> fastnn::Result<()> {
-    manual_seed(42);
+    manual_seed(SEED);
 
     let train = Mnist::load(Split::Train)?;
     let test = Mnist::load(Split::Test)?;
@@ -36,13 +34,13 @@ fn main() -> fastnn::Result<()> {
         .add(Linear::new(32 * 7 * 7, 10));
     model.to_device(device);
 
-    let mut opt = Adam::new(model.parameters(), 1e-3);
-    let schedule = CosineAnnealing::new(1e-3, EPOCHS * (train.len() / BATCH));
+    let mut opt = Adam::new(model.parameters(), LR);
+    let schedule = CosineAnnealing::new(LR, EPOCHS * (train.len() / BATCH));
     let train_loader = DataLoader::new(&train, BATCH)
         .shuffle(true)
         .drop_last(true)
         .to_device(device);
-    let test_loader = DataLoader::new(&test, 500).to_device(device);
+    let test_loader = DataLoader::new(&test, TEST_BATCH).to_device(device);
 
     println!("model: {} parameters on {device}\n", model.num_parameters());
 
@@ -67,7 +65,7 @@ fn main() -> fastnn::Result<()> {
             correct += count_correct(&logits, &labels);
             seen += batch.len();
 
-            if (index + 1) % 100 == 0 {
+            if (index + 1) % REPORT_EVERY == 0 {
                 println!(
                     "  epoch {epoch}  batch {:4}/{}  loss {:.4}  acc {:.2}%  lr {:.2e}",
                     index + 1,
@@ -79,8 +77,7 @@ fn main() -> fastnn::Result<()> {
             }
         }
 
-        // eval() switches batch norm to its running statistics, so a single
-        // image scores the same as it would inside a full batch.
+        // eval() makes batch norm use its running stats.
         model.eval();
         println!(
             "epoch {epoch} done  test acc {:.2}%\n",

@@ -7,7 +7,7 @@ use crate::tensor::Tensor;
 use super::state::place;
 use super::{Optimizer, OptimizerState};
 
-/// The moment estimates and update rule both optimizers share.
+/// Moment estimates shared by Adam and AdamW.
 struct Moments {
     first: Vec<Option<Tensor>>,
     second: Vec<Option<Tensor>>,
@@ -29,11 +29,7 @@ impl Moments {
         }
     }
 
-    /// How far to move parameter `index` given its gradient.
-    ///
-    /// Both moments start at zero and are therefore biased toward it early on;
-    /// dividing by `1 - βᵗ` corrects for that, which is what makes the first
-    /// few steps usable rather than vanishingly small.
+    /// The unscaled step for parameter `index`, bias corrected.
     fn update(&mut self, index: usize, grad: &Tensor) -> Tensor {
         let first = blend(self.first[index].as_ref(), grad, self.beta1);
         let second = blend(self.second[index].as_ref(), &grad.square(), self.beta2);
@@ -63,9 +59,7 @@ impl Moments {
     }
 }
 
-/// `β·previous + (1-β)·value`, starting from zero on the first step.
-///
-/// The exponential moving average every adaptive optimizer is built on.
+/// Exponential moving average: `β·previous + (1-β)·value`.
 pub(crate) fn blend(previous: Option<&Tensor>, value: &Tensor, beta: f32) -> Tensor {
     let fresh = value.mul_scalar(1.0 - beta);
     match previous {
@@ -74,7 +68,7 @@ pub(crate) fn blend(previous: Option<&Tensor>, value: &Tensor, beta: f32) -> Ten
     }
 }
 
-/// Adam: per-parameter step sizes from running gradient moments.
+/// Adam.
 ///
 /// ```
 /// # use fastnn::prelude::*;
@@ -98,21 +92,20 @@ impl Adam {
         }
     }
 
-    /// Decay rates for the first and second moment. Lower `beta2` reacts faster
-    /// to changing gradient scale, which transformers often want.
+    /// Decay rates for the first and second moment.
     pub fn betas(mut self, beta1: f32, beta2: f32) -> Adam {
         self.moments.beta1 = beta1;
         self.moments.beta2 = beta2;
         self
     }
 
-    /// Floor on the denominator, guarding against division by a tiny variance.
+    /// Added to the denominator for stability.
     pub fn eps(mut self, eps: f32) -> Adam {
         self.moments.eps = eps;
         self
     }
 
-    /// L2 penalty folded into the gradient. For true weight decay use [`AdamW`].
+    /// L2 penalty added to the gradient. Use [`AdamW`] for decoupled decay.
     pub fn weight_decay(mut self, decay: f32) -> Adam {
         self.weight_decay = decay;
         self
@@ -163,10 +156,8 @@ impl Optimizer for Adam {
 
 /// Adam with decoupled weight decay.
 ///
-/// Adam's L2 penalty goes through the moment estimates, so a parameter with
-/// consistently small gradients gets decayed *harder* than one with large ones —
-/// the opposite of the intent. AdamW shrinks the weight directly instead, which
-/// is why it is the default for transformers.
+/// Adam's L2 penalty goes through the moments and decays small-gradient
+/// weights harder. AdamW shrinks the weight directly.
 pub struct AdamW {
     params: Vec<Param>,
     moments: Moments,
@@ -210,7 +201,6 @@ impl Optimizer for AdamW {
             }
             let Some(grad) = param.grad() else { continue };
 
-            // Shrink the weight first, untouched by the moment estimates.
             let value = param.value().mul_scalar(1.0 - self.lr * self.weight_decay);
             let update = self.moments.update(index, &grad);
             param.set_value(value.sub(&update.mul_scalar(self.lr)));

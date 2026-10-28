@@ -5,10 +5,7 @@ use crate::cuda::kernels;
 use crate::tensor::storage::Storage;
 use crate::tensor::Tensor;
 
-/// Scatter-add each gathered row's gradient back into its source row.
-///
-/// Rows selected more than once accumulate, which is how a token repeated in a
-/// batch contributes to its embedding once per occurrence.
+/// Scatter-add each row's gradient into its source row, so repeats accumulate.
 pub struct IndexSelectBackward {
     pub ids: Vec<usize>,
     pub rows: usize,

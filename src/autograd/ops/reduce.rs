@@ -1,13 +1,10 @@
-//! Derivatives of reductions.
-//!
-//! A reduction fans one output back out to many inputs, so its derivative is a
-//! broadcast: every element that was summed gets the same gradient.
+//! Derivatives of reductions, which broadcast the gradient back out.
 
 use crate::autograd::Backward;
 use crate::tensor::shape;
 use crate::tensor::Tensor;
 
-/// Every element contributed 1 to the sum, so each gets the whole gradient.
+/// Every element gets the whole gradient.
 pub struct SumBackward {
     pub shape: Vec<usize>,
 }
@@ -21,7 +18,7 @@ impl Backward for SumBackward {
     }
 }
 
-/// Same as sum, divided by the number of elements averaged.
+/// Like sum, divided by the element count.
 pub struct MeanBackward {
     pub shape: Vec<usize>,
     pub count: usize,
@@ -37,7 +34,7 @@ impl Backward for MeanBackward {
     }
 }
 
-/// Copy the gradient back along the axis that was collapsed.
+/// Copy the gradient back along the collapsed axis.
 pub struct SumAxisBackward {
     pub shape: Vec<usize>,
     pub axis: usize,

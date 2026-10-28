@@ -26,12 +26,7 @@ impl Activation {
     }
 }
 
-/// One pre-norm transformer block: attention, then a feed-forward network, each
-/// wrapped in a residual connection.
-///
-/// Pre-norm — normalizing the *input* to each sub-layer rather than the output —
-/// leaves the residual path unnormalized from embedding to logits, which is what
-/// lets deep stacks train without a learning-rate warmup schedule tuned per depth.
+/// One pre-norm transformer block: attention then feed-forward, each in a residual.
 pub struct TransformerBlock {
     pub attention: MultiHeadAttention,
     pub norm_attention: LayerNorm,
@@ -98,9 +93,7 @@ impl TransformerBlock {
         }
     }
 
-    /// [`forward`](Module::forward) with a key padding mask: `[batch, len]`,
-    /// 1 for real positions and 0 for padding, so a batch of unequal-length
-    /// sequences attends only to its own content.
+    /// [`forward`](Module::forward) with a key padding mask, `[batch, len]`, 1 for real positions.
     pub fn forward_masked(&self, input: &Tensor, key_mask: Option<&Tensor>) -> Tensor {
         let normed = self.norm_attention.forward(input);
         let attended =
@@ -113,11 +106,7 @@ impl TransformerBlock {
         residual.add(&self.dropout.forward(&self.down.forward(&hidden)))
     }
 
-    /// [`forward`](Module::forward) with the attention keys and values cached
-    /// for incremental decoding.
-    ///
-    /// Inference-only — dropout is skipped — and causal by nature: a cache only
-    /// makes sense when later tokens cannot change earlier ones.
+    /// [`forward`](Module::forward) through a KV cache. Inference only, causal blocks only.
     pub fn forward_cached(&self, input: &Tensor, cache: &mut KvCache) -> Tensor {
         assert!(
             self.causal,
@@ -179,7 +168,7 @@ impl TransformerStack {
         })
     }
 
-    /// A causal decoder stack, as used by GPT-style language models.
+    /// A causal decoder stack, GPT style.
     pub fn causal(
         model_dim: usize,
         heads: usize,
@@ -208,8 +197,7 @@ impl TransformerStack {
         StackCache::new(self.blocks.len())
     }
 
-    /// [`forward`](Module::forward) with a key padding mask applied in every
-    /// block. See [`TransformerBlock::forward_masked`].
+    /// [`forward`](Module::forward) with a key padding mask in every block.
     pub fn forward_masked(&self, input: &Tensor, key_mask: Option<&Tensor>) -> Tensor {
         let hidden = self
             .blocks
@@ -218,8 +206,7 @@ impl TransformerStack {
         self.norm.forward(&hidden)
     }
 
-    /// [`forward`](Module::forward) through per-block KV caches, for feeding a
-    /// generation loop one token at a time. See [`super::cache`].
+    /// [`forward`](Module::forward) through per-block KV caches. See [`super::cache`].
     pub fn forward_cached(&self, input: &Tensor, cache: &mut StackCache) -> Tensor {
         assert_eq!(
             cache.layers.len(),

@@ -5,11 +5,7 @@ use crate::tensor::Tensor;
 use super::module::Module;
 use super::param::Param;
 
-/// `y = x · Wᵀ + b`.
-///
-/// Accepts any input whose last dimension is `in_features`; leading dimensions
-/// are flattened into the batch and restored on the way out, so the same layer
-/// serves `[batch, features]` and `[batch, sequence, features]`.
+/// `y = x · Wᵀ + b` over the last dimension, any number of leading dimensions.
 pub struct Linear {
     pub weight: Param,
     pub bias: Option<Param>,
@@ -31,8 +27,7 @@ impl Linear {
         }
     }
 
-    /// A layer with no bias — the usual choice when a normalization layer with
-    /// its own shift follows immediately.
+    /// A layer without bias.
     pub fn no_bias(in_features: usize, out_features: usize) -> Linear {
         Linear {
             weight: Param::new(Tensor::kaiming_uniform(
@@ -64,7 +59,7 @@ impl Module for Linear {
             input.shape()
         );
 
-        // `matmul_nt` consumes the weight as stored, [out, in], with no transposed copy.
+        // matmul_nt takes the weight as stored, [out, in], so no transposed copy
         let flat = input.reshape(&[-1, self.in_features as i64]);
         let mut out = flat.matmul_nt(&self.weight.tensor());
 
@@ -89,8 +84,8 @@ impl Module for Linear {
     }
 }
 
-/// PyTorch's linear bias init: uniform over `±1/√fan_in`.
-fn uniform_bias(out_features: usize, fan_in: usize) -> Tensor {
+/// Uniform over `±1/√fan_in`, the bias init shared with the conv layers.
+pub(super) fn uniform_bias(out_features: usize, fan_in: usize) -> Tensor {
     let bound = 1.0 / (fan_in as f32).sqrt();
     Tensor::uniform(&[out_features], -bound, bound)
 }

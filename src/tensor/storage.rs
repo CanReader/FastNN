@@ -1,8 +1,4 @@
-//! The bytes behind a tensor, on one device or the other.
-//!
-//! `Storage` is never cloned during normal use — a [`Tensor`](super::Tensor)
-//! shares it through an `Arc`, so passing tensors around is a refcount bump and
-//! a device copy only happens when you ask for one.
+//! The buffer behind a tensor, on the CPU or a GPU. Tensors share it through an `Arc`.
 
 use crate::cuda::CudaBuffer;
 

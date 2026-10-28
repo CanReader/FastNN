@@ -1,8 +1,7 @@
 //! Learning-rate schedules.
 //!
-//! A schedule is a pure function of the step number, not something that mutates
-//! an optimizer. That makes it trivial to test, to plot, and to resume from a
-//! checkpoint — and it composes, so [`Warmup`] can wrap any of the others.
+//! A schedule is a pure function of the step, so it composes and survives a
+//! resume. [`Warmup`] wraps any other.
 //!
 //! ```
 //! use fastnn::prelude::*;
@@ -36,14 +35,12 @@ impl LrSchedule for Constant {
 /// Multiply by `gamma` every `every` steps.
 pub struct StepDecay {
     pub base: f32,
-    /// The positive number of steps between rate changes.
+    /// Steps between rate changes, must be positive.
     pub every: usize,
     pub gamma: f32,
 }
 
 impl StepDecay {
-    /// Create a schedule that decays every `every` steps.
-    ///
     /// # Panics
     ///
     /// Panics if `every` is zero.
@@ -63,10 +60,7 @@ impl LrSchedule for StepDecay {
     }
 }
 
-/// Follow half a cosine from `base` down to `floor` over `total` steps.
-///
-/// The slow start and slow finish are the point: most of the decay happens in
-/// the middle, leaving a long low-rate tail to settle in.
+/// Half a cosine from `base` down to `floor` over `total` steps.
 pub struct CosineAnnealing {
     pub base: f32,
     pub floor: f32,
@@ -96,10 +90,7 @@ impl LrSchedule for CosineAnnealing {
     }
 }
 
-/// Ramp linearly from zero over the first `steps`, then hand off to `inner`.
-///
-/// Adaptive optimizers have unreliable variance estimates for their first few
-/// hundred steps; warming up stops that turning into a large, badly aimed update.
+/// Ramp linearly from zero over the first `steps`, then defer to `inner`.
 pub struct Warmup<S> {
     inner: S,
     steps: usize,
@@ -122,24 +113,28 @@ impl<S: LrSchedule> LrSchedule for Warmup<S> {
     }
 }
 
-/// One cycle: ramp up to `peak`, then cosine down well below the start.
+/// Ramp up to `peak`, then cosine down well below the start.
 pub struct OneCycle {
     pub peak: f32,
     pub total: usize,
-    /// The finite fraction of steps used for warmup, in the inclusive range [0, 1].
+    /// Fraction of steps spent warming up, in [0, 1].
     pub warmup_fraction: f32,
     pub start_divisor: f32,
     pub final_divisor: f32,
 }
+
+const DEFAULT_WARMUP_FRACTION: f32 = 0.3;
+const DEFAULT_START_DIVISOR: f32 = 25.0;
+const DEFAULT_FINAL_DIVISOR: f32 = 10_000.0;
 
 impl OneCycle {
     pub fn new(peak: f32, total: usize) -> OneCycle {
         OneCycle {
             peak,
             total,
-            warmup_fraction: 0.3,
-            start_divisor: 25.0,
-            final_divisor: 10_000.0,
+            warmup_fraction: DEFAULT_WARMUP_FRACTION,
+            start_divisor: DEFAULT_START_DIVISOR,
+            final_divisor: DEFAULT_FINAL_DIVISOR,
         }
     }
 }
@@ -154,7 +149,7 @@ impl LrSchedule for OneCycle {
             "warmup_fraction must be in [0, 1], got {}",
             self.warmup_fraction
         );
-        // Converting total to f32 can round warmup above total even at a fraction of 1.
+        // total as f32 can round up, pushing warmup past total at a fraction of 1.
         let warmup = ((self.warmup_fraction * self.total as f32) as usize).min(self.total);
         let start = self.peak / self.start_divisor;
         let end = self.peak / self.final_divisor;
@@ -210,7 +205,7 @@ mod tests {
         StepDecay::new(1.0, 0, 0.5);
     }
 
-    // The fields are public, so the check in lr_at has to catch this too.
+    // The field is public, so lr_at has to check too.
     #[test]
     #[should_panic(expected = "every")]
     fn step_decay_rejects_zero_every_set_after_new() {
@@ -272,8 +267,7 @@ mod tests {
         close(schedule.lr_at(2), 0.0001);
     }
 
-    // 2^24 + 3 rounds up in f32, so a fraction of exactly 1 used to put the
-    // warmup past total and underflow the subtraction after it.
+    // 2^24 + 3 rounds up in f32, which used to underflow total - warmup.
     #[test]
     fn one_cycle_survives_a_total_that_rounds_up_in_f32() {
         let total = 16_777_219;
