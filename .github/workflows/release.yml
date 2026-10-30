@@ -146,11 +146,12 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
-          path: dist
+          path: ${{ runner.temp }}/dist
           merge-multiple: true
 
+      # Kept outside the checkout: cargo publish refuses a dirty working tree.
       - name: Checksums
-        working-directory: dist
+        working-directory: ${{ runner.temp }}/dist
         run: sha256sum fastnn-* > SHA256SUMS && cat SHA256SUMS
 
       - name: Publish to crates.io
@@ -167,5 +168,5 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP"/dist/* \
             --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
