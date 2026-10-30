@@ -1,6 +1,6 @@
 # FastNN
 
-A robust deep learning library in Rust with CUDA kernels.
+A small deep learning library in Rust with optional CUDA kernels.
 
 [![CI](https://github.com/CanReader/FastNN/actions/workflows/ci.yml/badge.svg)](https://github.com/CanReader/FastNN/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/fastnn.svg)](https://crates.io/crates/fastnn)
