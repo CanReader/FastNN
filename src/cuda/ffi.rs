@@ -6,7 +6,7 @@
 
 use std::ffi::c_int;
 
-extern "C" {
+unsafe extern "C" {
     pub fn fastnn_cuda_init(device_id: c_int) -> c_int;
     pub fn fastnn_cuda_device_count() -> c_int;
     pub fn fastnn_cuda_synchronize() -> c_int;
@@ -81,7 +81,7 @@ extern "C" {
         cols: c_int,
     ) -> c_int;
     pub fn fastnn_cuda_log_softmax(x: *const f32, out: *mut f32, rows: c_int, cols: c_int)
-        -> c_int;
+    -> c_int;
 
     pub fn fastnn_cuda_layer_norm_forward(
         x: *const f32,
