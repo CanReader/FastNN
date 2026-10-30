@@ -1,5 +1,34 @@
 //! Layers, losses and decoding helpers. Everything implements [`Module`], and a
 //! layer's weights are shared [`Param`] handles so an optimizer can hold them too.
+//!
+//! ```
+//! use fastnn::prelude::*;
+//!
+//! let cnn = Sequential::new()
+//!     .add(Conv2d::new(1, 8, 3, 1, 1))
+//!     .add(ReLU)
+//!     .add(MaxPool2d::new(2))
+//!     .add(Flatten::new())
+//!     .add(Linear::new(8 * 14 * 14, 10));
+//!
+//! let logits = cnn.forward(&Tensor::randn(&[4, 1, 28, 28]));
+//! assert_eq!(logits.shape(), &[4, 10]);
+//! ```
+//!
+//! - Layers: [`Linear`], [`Conv1d`], [`Conv2d`], [`ConvTranspose1d`],
+//!   [`ConvTranspose2d`], [`MaxPool2d`], [`AvgPool2d`], [`AdaptiveAvgPool2d`],
+//!   [`BatchNorm2d`], [`LayerNorm`], [`RMSNorm`], [`Dropout`], [`Embedding`],
+//!   [`PositionalEncoding`], [`LSTM`] and [`GRU`].
+//! - Transformers: [`MultiHeadAttention`], [`TransformerStack`] as an encoder or a
+//!   causal decoder, [`TransformerDecoder`] with cross-attention, and the
+//!   encoder-decoder [`Transformer`].
+//! - Generation: [`KvCache`] and [`StackCache`] for incremental decoding,
+//!   [`Sampler`] for temperature, top-k and top-p, and [`BeamSearch`].
+//! - Losses: [`cross_entropy`], [`mse`], [`bce_with_logits`], [`huber`],
+//!   [`kl_divergence`], [`dice`], [`triplet_margin`], [`info_nce`] and the rest of
+//!   [`loss`] and [`metric_losses`]. [`CrossEntropyLoss`] adds label smoothing,
+//!   class weights and an ignore index.
+//! - Plumbing: [`Module`], [`Sequential`], [`Param`] and [`Buffer`].
 
 pub mod activation;
 pub mod attention;

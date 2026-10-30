@@ -16,6 +16,12 @@ pub fn is_detecting() -> bool {
 }
 
 /// Run `f` with gradient checking on.
+///
+/// ```
+/// # use fastnn::prelude::*;
+/// let w = Param::new(Tensor::from_vec(vec![1.0, 2.0], &[2]));
+/// detect_anomaly(|| w.tensor().exp().sum().backward());
+/// ```
 pub fn detect_anomaly<T>(f: impl FnOnce() -> T) -> T {
     let _guard = Enabled::new();
     f()
