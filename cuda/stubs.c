@@ -9,7 +9,6 @@ int fastnn_cuda_memcpy_h2d(float *d, const float *h, size_t n)  { (void)d;(void)
 int fastnn_cuda_memcpy_d2h(float *h, const float *d, size_t n)  { (void)h;(void)d;(void)n; STUB; }
 int fastnn_cuda_memcpy_d2d(float *d, const float *s, size_t n)  { (void)d;(void)s;(void)n; STUB; }
 int fastnn_cuda_memset(float *p, int v, size_t n)               { (void)p;(void)v;(void)n; STUB; }
-int fastnn_cuda_fill(float *p, float v, size_t n)               { (void)p;(void)v;(void)n; STUB; }
 
 int fastnn_cuda_add(const float*a,const float*b,float*o,size_t n)            {(void)a;(void)b;(void)o;(void)n;STUB;}
 int fastnn_cuda_sub(const float*a,const float*b,float*o,size_t n)            {(void)a;(void)b;(void)o;(void)n;STUB;}
@@ -47,8 +46,6 @@ int fastnn_cuda_sum(const float*i,float*o,size_t n)                          {(v
 int fastnn_cuda_mean(const float*i,float*o,size_t n)                         {(void)i;(void)o;(void)n;STUB;}
 int fastnn_cuda_max(const float*i,float*o,size_t n)                          {(void)i;(void)o;(void)n;STUB;}
 int fastnn_cuda_min(const float*i,float*o,size_t n)                          {(void)i;(void)o;(void)n;STUB;}
-int fastnn_cuda_argmax(const float*i,int*o,size_t n)                         {(void)i;(void)o;(void)n;STUB;}
-int fastnn_cuda_argmax_axis(const float*i,int*o,size_t rows,size_t cols,int axis){(void)i;(void)o;(void)rows;(void)cols;(void)axis;STUB;}
 int fastnn_cuda_matmul(const float*a,const float*b,float*c,int m,int k,int n){(void)a;(void)b;(void)c;(void)m;(void)k;(void)n;STUB;}
 int fastnn_cuda_matmul_batched(const float*a,const float*b,float*c,int batch,int m,int k,int n){(void)a;(void)b;(void)c;(void)batch;(void)m;(void)k;(void)n;STUB;}
 int fastnn_cuda_matmul_nt(const float*a,const float*b,float*c,int m,int n,int k){(void)a;(void)b;(void)c;(void)m;(void)n;(void)k;STUB;}

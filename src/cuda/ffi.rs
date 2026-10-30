@@ -18,7 +18,6 @@ extern "C" {
     pub fn fastnn_cuda_memcpy_d2h(dst: *mut f32, src: *const f32, bytes: usize) -> c_int;
     pub fn fastnn_cuda_memcpy_d2d(dst: *mut f32, src: *const f32, bytes: usize) -> c_int;
     pub fn fastnn_cuda_memset(ptr: *mut f32, value: c_int, bytes: usize) -> c_int;
-    pub fn fastnn_cuda_fill(data: *mut f32, value: f32, n: usize) -> c_int;
 
     pub fn fastnn_cuda_add(a: *const f32, b: *const f32, out: *mut f32, n: usize) -> c_int;
     pub fn fastnn_cuda_sub(a: *const f32, b: *const f32, out: *mut f32, n: usize) -> c_int;
@@ -245,14 +244,6 @@ extern "C" {
     pub fn fastnn_cuda_mean(x: *const f32, out: *mut f32, n: usize) -> c_int;
     pub fn fastnn_cuda_max(x: *const f32, out: *mut f32, n: usize) -> c_int;
     pub fn fastnn_cuda_min(x: *const f32, out: *mut f32, n: usize) -> c_int;
-    pub fn fastnn_cuda_argmax(x: *const f32, out: *mut c_int, n: usize) -> c_int;
-    pub fn fastnn_cuda_argmax_axis(
-        x: *const f32,
-        out: *mut c_int,
-        outer: c_int,
-        axis: c_int,
-        inner: c_int,
-    ) -> c_int;
     pub fn fastnn_cuda_sum_axis(
         x: *const f32,
         out: *mut f32,
