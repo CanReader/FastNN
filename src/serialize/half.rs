@@ -60,11 +60,7 @@ pub fn f32_from_f16(bits: u16) -> f32 {
         (0, 0) => f32::from_bits(sign),
         (0, m) => {
             let magnitude = m as f32 * f32::from_bits(0x3380_0000); // 2^-24
-            if sign != 0 {
-                -magnitude
-            } else {
-                magnitude
-            }
+            if sign != 0 { -magnitude } else { magnitude }
         }
         (0x1F, 0) => f32::from_bits(sign | 0x7F80_0000),
         (0x1F, _) => f32::NAN,

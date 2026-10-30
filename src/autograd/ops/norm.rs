@@ -2,8 +2,8 @@
 
 use crate::autograd::Backward;
 use crate::cuda::kernels;
-use crate::tensor::storage::Storage;
 use crate::tensor::Tensor;
+use crate::tensor::storage::Storage;
 
 /// LayerNorm on the host. Returns gradients for `(input, gamma, beta)`.
 pub struct LayerNormBackward {

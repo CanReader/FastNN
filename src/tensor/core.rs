@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use crate::autograd::{self, Backward, GradSlot, Node};
 
+use super::Device;
 use super::shape;
 use super::storage::Storage;
-use super::Device;
 
 /// An n-dimensional `f32` array on the CPU or a GPU.
 ///

@@ -103,11 +103,7 @@ pub fn split_at_axis(shape: &[usize], axis: usize) -> (usize, usize, usize) {
 
 fn dim_right_aligned(shape: &[usize], ndim: usize, i: usize) -> usize {
     let offset = ndim - shape.len();
-    if i < offset {
-        1
-    } else {
-        shape[i - offset]
-    }
+    if i < offset { 1 } else { shape[i - offset] }
 }
 
 #[cfg(test)]

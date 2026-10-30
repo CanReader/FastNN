@@ -6,8 +6,8 @@ use rayon::prelude::*;
 
 use crate::autograd::ops::matmul::{MatmulBackward, MatmulNtBackward, MatmulTnBackward};
 use crate::cuda::kernels;
-use crate::tensor::storage::Storage;
 use crate::tensor::Tensor;
+use crate::tensor::storage::Storage;
 
 /// Below this many multiply-adds the thread pool is not worth waking.
 const SERIAL_FLOPS: usize = 16_384;

@@ -3,9 +3,9 @@
 
 use crate::autograd::Backward;
 use crate::cuda::kernels;
-use crate::tensor::ops::conv::{fold, unfold, Window};
-use crate::tensor::storage::Storage;
 use crate::tensor::Tensor;
+use crate::tensor::ops::conv::{Window, fold, unfold};
+use crate::tensor::storage::Storage;
 
 /// Gradient of `im2col`: fold the columns back, summing overlaps.
 pub struct Col2ImBackward {

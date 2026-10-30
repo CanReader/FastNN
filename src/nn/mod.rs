@@ -24,20 +24,20 @@ pub mod sequential;
 pub mod shape;
 pub mod transformer;
 
-pub use activation::{LeakyReLU, ReLU, SiLU, Sigmoid, Softmax, Tanh, GELU};
+pub use activation::{GELU, LeakyReLU, ReLU, SiLU, Sigmoid, Softmax, Tanh};
 pub use attention::MultiHeadAttention;
 pub use beam::BeamSearch;
 pub use cache::{KvCache, StackCache};
 pub use conv::Conv2d;
-pub use conv1d::Conv1d;
 pub use conv_transpose::{ConvTranspose1d, ConvTranspose2d};
+pub use conv1d::Conv1d;
 pub use decoder::{Transformer, TransformerDecoder, TransformerDecoderBlock};
 pub use dropout::Dropout;
 pub use embedding::{Embedding, PositionalEncoding};
 pub use linear::Linear;
 pub use loss::{
-    bce, bce_with_logits, cross_entropy, dice, focal_bce_with_logits, gaussian_nll, huber,
-    kl_divergence, mae, mse, nll, poisson_nll, smooth_l1, CrossEntropyLoss, Reduction,
+    CrossEntropyLoss, Reduction, bce, bce_with_logits, cross_entropy, dice, focal_bce_with_logits,
+    gaussian_nll, huber, kl_divergence, mae, mse, nll, poisson_nll, smooth_l1,
 };
 pub use metric_losses::{contrastive, cosine_embedding, info_nce, margin_ranking, triplet_margin};
 pub use module::Module;

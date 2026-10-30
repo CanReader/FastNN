@@ -1,8 +1,8 @@
 //! Derivatives of reductions, which broadcast the gradient back out.
 
 use crate::autograd::Backward;
-use crate::tensor::shape;
 use crate::tensor::Tensor;
+use crate::tensor::shape;
 
 /// Every element gets the whole gradient.
 pub struct SumBackward {

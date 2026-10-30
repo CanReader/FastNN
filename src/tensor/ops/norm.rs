@@ -3,8 +3,8 @@
 
 use crate::autograd::ops::norm::{BatchNorm2dBackward, LayerNormBackward, LayerNormCudaBackward};
 use crate::cuda::kernels;
-use crate::tensor::storage::Storage;
 use crate::tensor::Tensor;
+use crate::tensor::storage::Storage;
 
 /// Per-channel statistics of one batch, for updating running estimates.
 pub struct BatchStats {

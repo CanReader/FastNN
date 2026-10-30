@@ -278,8 +278,8 @@ impl<'a> Header<'a> {
                         "BF16" => Dtype::Bf16,
                         other => {
                             return Err(bad(format!(
-                        "'{name}' has dtype {other}, and only F32/F16/BF16 load into f32 storage"
-                    )))
+                                "'{name}' has dtype {other}, and only F32/F16/BF16 load into f32 storage"
+                            )));
                         }
                     })
                 }

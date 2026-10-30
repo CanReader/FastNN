@@ -3,8 +3,8 @@
 
 use crate::autograd::Backward;
 use crate::cuda::{ffi, kernels};
-use crate::tensor::storage::Storage;
 use crate::tensor::Tensor;
+use crate::tensor::storage::Storage;
 
 use super::unary::elementwise;
 
@@ -114,11 +114,7 @@ impl Backward for LeakyReluBackward {
     fn backward(&self, grad: &Tensor) -> Vec<Tensor> {
         let slope = self.slope;
         vec![elementwise(grad, &self.input, move |x| {
-            if x > 0.0 {
-                1.0
-            } else {
-                slope
-            }
+            if x > 0.0 { 1.0 } else { slope }
         })]
     }
     fn name(&self) -> &'static str {

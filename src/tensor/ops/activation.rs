@@ -6,8 +6,8 @@ use crate::autograd::ops::activation::{
     SiluBackward, SoftmaxBackward, TanhBackward,
 };
 use crate::cuda::{ffi, kernels};
-use crate::tensor::storage::Storage;
 use crate::tensor::Tensor;
+use crate::tensor::storage::Storage;
 
 use super::unary_op;
 

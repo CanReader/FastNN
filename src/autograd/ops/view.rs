@@ -1,8 +1,8 @@
 //! Derivatives of the rearranging ops, each the inverse rearrangement.
 
 use crate::autograd::Backward;
-use crate::tensor::shape;
 use crate::tensor::Tensor;
+use crate::tensor::shape;
 
 use super::reduce_to;
 

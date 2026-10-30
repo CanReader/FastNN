@@ -1,9 +1,9 @@
 //! Derivatives of pooling, which route the gradient the way the forward did.
 
 use crate::autograd::Backward;
+use crate::tensor::Tensor;
 use crate::tensor::ops::conv::Window;
 use crate::tensor::ops::pool::adaptive_range;
-use crate::tensor::Tensor;
 
 /// Only the winning input gets the gradient.
 pub struct MaxPool2dBackward {

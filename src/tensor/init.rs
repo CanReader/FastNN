@@ -2,8 +2,8 @@
 
 use crate::rng;
 
-use super::shape;
 use super::Tensor;
+use super::shape;
 
 impl Tensor {
     /// All zeros.

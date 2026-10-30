@@ -161,7 +161,7 @@ fn raw_alloc(len: usize) -> Result<*mut f32> {
 /// Free list of blocks keyed by element count. Safe to reuse right away because every kernel
 /// runs on the ordered default stream.
 mod cache {
-    use super::{ffi, HashMap, Mutex};
+    use super::{HashMap, Mutex, ffi};
 
     /// Spare blocks kept per size before memory goes back to the driver.
     const MAX_PER_SIZE: usize = 32;

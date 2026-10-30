@@ -56,7 +56,10 @@ fn main() {
             let var = sample.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / sample.len() as f32;
             println!(
                 "step {:4}  d_loss {:.3}  g_loss {:.3}  generated mean {mean:.2} std {:.2}  (target {target_mean} / {target_std})",
-                step + 1, d_loss.item(), g_loss.item(), var.sqrt()
+                step + 1,
+                d_loss.item(),
+                g_loss.item(),
+                var.sqrt()
             );
         }
     }

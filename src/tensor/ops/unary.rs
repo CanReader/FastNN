@@ -4,8 +4,8 @@ use crate::autograd::ops::unary::{
     AbsBackward, ClampBackward, ExpBackward, LogBackward, NegBackward, PowBackward, SqrtBackward,
 };
 use crate::cuda::{ffi, kernels};
-use crate::tensor::storage::Storage;
 use crate::tensor::Tensor;
+use crate::tensor::storage::Storage;
 
 use super::{scalar_op, unary_op};
 

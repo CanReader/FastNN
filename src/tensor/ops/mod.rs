@@ -16,9 +16,9 @@ use rayon::prelude::*;
 
 use crate::cuda::{ffi, kernels};
 
+use super::Tensor;
 use super::shape;
 use super::storage::Storage;
-use super::Tensor;
 
 /// Below this many elements rayon costs more than it saves.
 const PARALLEL_THRESHOLD: usize = 1 << 15;

@@ -3,9 +3,9 @@
 
 use crate::autograd::ops::reduce::{MeanBackward, SumAxisBackward, SumBackward};
 use crate::cuda::kernels;
+use crate::tensor::Tensor;
 use crate::tensor::shape;
 use crate::tensor::storage::Storage;
-use crate::tensor::Tensor;
 
 impl Tensor {
     /// Sum of every element, as a `[1]` tensor.
