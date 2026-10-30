@@ -1,6 +1,6 @@
 # FastNN
 
-A deep learning library in Rust, with CUDA kernels for the parts that matter.
+A small deep learning library in Rust with optional CUDA kernels.
 
 [![CI](https://github.com/CanReader/FastNN/actions/workflows/ci.yml/badge.svg)](https://github.com/CanReader/FastNN/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/fastnn.svg)](https://crates.io/crates/fastnn)
@@ -48,29 +48,32 @@ Needs Rust 1.87 or newer. With `--features cuda` you also need the CUDA toolkit,
 An MNIST training loop:
 
 ```rust
-use fastnn::prelude::*;
 use fastnn::data::{Mnist, Split};
+use fastnn::prelude::*;
 
-let train = Mnist::load(Split::Train)?;
-let loader = DataLoader::new(&train, 128).shuffle(true);
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let train = Mnist::load(Split::Train)?;
+    let loader = DataLoader::new(&train, 128).shuffle(true);
 
-let model = Sequential::new()
-    .add(Flatten::new())
-    .add(Linear::new(784, 128))
-    .add(ReLU)
-    .add(Linear::new(128, 10));
+    let model = Sequential::new()
+        .add(Flatten::new())
+        .add(Linear::new(784, 128))
+        .add(ReLU)
+        .add(Linear::new(128, 10));
 
-let mut opt = Adam::new(model.parameters(), 1e-3);
+    let mut opt = Adam::new(model.parameters(), 1e-3);
 
-for batch in loader.iter() {
-    let loss = cross_entropy(&model.forward(&batch.inputs), &batch.labels());
+    for batch in loader.iter() {
+        let loss = cross_entropy(&model.forward(&batch.inputs), &batch.labels());
 
-    opt.zero_grad();
-    loss.backward();
-    opt.step();
+        opt.zero_grad();
+        loss.backward();
+        opt.step();
+    }
+
+    save(&model, "mnist.fdl")?;
+    Ok(())
 }
-
-save(&model, "mnist.fdl")?;
 ```
 
 To train on a GPU, move the model and the loader:
@@ -130,7 +133,7 @@ prebuilt, so you can try them without installing Rust.
 
 Releases include a `SHA256SUMS` file and a build provenance attestation for each
 archive (`gh attestation verify <archive> --repo CanReader/FastNN`). The CUDA
-build links against the CUDA 13 runtime.
+build needs an NVIDIA driver new enough for the toolkit it was built with.
 
 ## Platform support
 
@@ -229,6 +232,8 @@ each operation.
 Device placement, parameter counting and gradient zeroing follow from those.
 
 ```rust
+use fastnn::nn::module::scoped;
+
 struct Residual { inner: Linear }
 
 impl Module for Residual {
@@ -246,17 +251,18 @@ with `with_grad`, add a case to `tests/gradcheck.rs`.
 
 ```rust
 // tensor/ops/unary.rs
-pub fn softplus(&self) -> Tensor {
-    unary_op(self, |x| x.exp().ln_1p(), ffi::fastnn_cuda_softplus)
-        .with_grad(&[self], || SoftplusBackward { input: self.detach() })
+pub fn sqrt(&self) -> Tensor {
+    let out = unary_op(self, f32::sqrt, ffi::fastnn_cuda_sqrt);
+    let saved = out.clone();
+    out.with_grad(&[self], || SqrtBackward { output: saved })
 }
 
 // autograd/ops/unary.rs
-impl Backward for SoftplusBackward {
+impl Backward for SqrtBackward {
     fn backward(&self, grad: &Tensor) -> Vec<Tensor> {
-        vec![elementwise(grad, &self.input, |x| 1.0 / (1.0 + (-x).exp()))]
+        vec![grad.div(&self.output.mul_scalar(2.0))]
     }
-    fn name(&self) -> &'static str { "Softplus" }
+    fn name(&self) -> &'static str { "Sqrt" }
 }
 ```
 
@@ -354,6 +360,7 @@ src/
   cuda/            ffi (raw bindings)  kernels (safe wrappers)  buffer
 
 cuda/kernels.cu    every GPU kernel
+cuda/stubs.c       CPU-only stand-ins for the same symbols
 ```
 
 `tensor/ops/` and `autograd/ops/` mirror each other file for file. The forward
@@ -362,6 +369,7 @@ for `relu` is in `tensor/ops/activation.rs`, its derivative in
 
 ## Limitations
 
+* Version 0.x, so the API can still change between minor releases.
 * Compute is `f32`. F16 and BF16 checkpoints load and are widened on read.
 * `LSTM` and `GRU` are built from ordinary ops, one graph node per gate per
   timestep. Fine for short sequences, use a transformer for long ones.
@@ -374,9 +382,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Issues labelled
 [`good first issue`](https://github.com/CanReader/FastNN/labels/good%20first%20issue)
 are a good place to start. Report security problems privately, see
 [SECURITY.md](SECURITY.md).
-
-During Hacktoberfest, read the [pinned issue](https://github.com/CanReader/FastNN/issues/56)
-first. It explains how claiming an issue works and what counts.
 
 If FastNN is useful to you, a star helps other people find it.
 
