@@ -1,7 +1,7 @@
 //! Batching and shuffling.
 
 use crate::rng;
-use crate::tensor::{ops::index::index_from_f32, Device, Tensor};
+use crate::tensor::{Device, Tensor, ops::index::index_from_f32};
 
 use super::dataset::Dataset;
 

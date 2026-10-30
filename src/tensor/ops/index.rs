@@ -2,8 +2,8 @@
 
 use crate::autograd::ops::index::IndexSelectBackward;
 use crate::cuda::kernels;
-use crate::tensor::storage::Storage;
 use crate::tensor::Tensor;
+use crate::tensor::storage::Storage;
 
 /// Convert a float index without truncating or saturating it.
 pub(crate) fn index_from_f32(value: f32) -> usize {

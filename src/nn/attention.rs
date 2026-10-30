@@ -8,7 +8,7 @@ use crate::tensor::{Device, Tensor};
 use super::cache::KvCache;
 use super::dropout::Dropout;
 use super::linear::Linear;
-use super::module::{scoped, Module};
+use super::module::{Module, scoped};
 use super::param::Param;
 
 /// Large negative added to masked scores, so softmax gives them zero weight.

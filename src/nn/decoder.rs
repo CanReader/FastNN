@@ -6,7 +6,7 @@ use crate::tensor::Tensor;
 use super::attention::MultiHeadAttention;
 use super::dropout::Dropout;
 use super::linear::Linear;
-use super::module::{scoped, Module};
+use super::module::{Module, scoped};
 use super::norm::LayerNorm;
 use super::param::Param;
 use super::transformer::{Activation, TransformerStack};

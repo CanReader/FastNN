@@ -3,8 +3,8 @@
 
 use crate::error::{Error, Result};
 
-use super::shape;
 use super::Tensor;
+use super::shape;
 
 impl Tensor {
     /// [`matmul`](Tensor::matmul), reporting a mismatch instead of panicking.

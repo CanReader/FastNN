@@ -30,6 +30,6 @@ pub mod half;
 pub mod safetensors;
 pub mod training;
 
-pub use checkpoint::{load, load_tensors, save, save_tensors, Checkpoint};
-pub use safetensors::{load_safetensors, load_safetensors_renamed, save_safetensors, LoadReport};
+pub use checkpoint::{Checkpoint, load, load_tensors, save, save_tensors};
+pub use safetensors::{LoadReport, load_safetensors, load_safetensors_renamed, save_safetensors};
 pub use training::{load_training, save_training};

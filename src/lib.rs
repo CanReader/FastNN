@@ -441,18 +441,18 @@ pub mod prelude {
     pub use crate::autograd::{detect_anomaly, no_grad};
     pub use crate::data::{Batch, DataLoader, Dataset, TensorDataset};
     pub use crate::nn::{
-        bce, bce_with_logits, cross_entropy, huber, kl_divergence, mae, mse, nll,
         AdaptiveAvgPool2d, AvgPool2d, BatchNorm2d, BeamSearch, Buffer, Conv1d, Conv2d,
-        ConvTranspose1d, ConvTranspose2d, CrossEntropyLoss, Dropout, Embedding, Flatten, KvCache,
-        LayerNorm, LeakyReLU, Linear, MaxPool2d, Module, MultiHeadAttention, Param,
+        ConvTranspose1d, ConvTranspose2d, CrossEntropyLoss, Dropout, Embedding, Flatten, GELU, GRU,
+        KvCache, LSTM, LayerNorm, LeakyReLU, Linear, MaxPool2d, Module, MultiHeadAttention, Param,
         PositionalEncoding, RMSNorm, ReLU, Reduction, Reshape, Sampler, Sequential, SiLU, Sigmoid,
         Softmax, StackCache, Tanh, Transformer, TransformerBlock, TransformerDecoder,
-        TransformerDecoderBlock, TransformerStack, GELU, GRU, LSTM,
+        TransformerDecoderBlock, TransformerStack, bce, bce_with_logits, cross_entropy, huber,
+        kl_divergence, mae, mse, nll,
     };
     pub use crate::optim::{
-        clip_grad_norm, clip_grad_value, Adadelta, Adagrad, Adam, AdamW, Constant, CosineAnnealing,
-        Ema, Lion, Lookahead, LrSchedule, OneCycle, Optimizer, OptimizerState, RAdam, RMSprop,
-        StepDecay, Warmup, SGD,
+        Adadelta, Adagrad, Adam, AdamW, Constant, CosineAnnealing, Ema, Lion, Lookahead,
+        LrSchedule, OneCycle, Optimizer, OptimizerState, RAdam, RMSprop, SGD, StepDecay, Warmup,
+        clip_grad_norm, clip_grad_value,
     };
     pub use crate::rng::manual_seed;
     pub use crate::serialize::{

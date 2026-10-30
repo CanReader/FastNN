@@ -5,9 +5,9 @@ use crate::autograd::ops::view::{
     CatBackward, ExpandBackward, NarrowBackward, PermuteBackward, ReshapeBackward,
 };
 use crate::cuda::kernels;
+use crate::tensor::Tensor;
 use crate::tensor::shape;
 use crate::tensor::storage::Storage;
-use crate::tensor::Tensor;
 
 impl Tensor {
     /// Same elements under a new shape, sharing storage. One dim may be `-1`.

@@ -1,7 +1,7 @@
 //! Hot path throughput on the GPU if there is one, otherwise the CPU.
 //! GPU timings include the launch.
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use fastnn::prelude::*;
 
 fn device() -> (Device, &'static str) {

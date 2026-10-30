@@ -1,6 +1,6 @@
 //! Embedding table and positional encoding.
 
-use crate::tensor::{ops::index::index_from_f32, Tensor};
+use crate::tensor::{Tensor, ops::index::index_from_f32};
 
 use super::module::Module;
 use super::param::Param;

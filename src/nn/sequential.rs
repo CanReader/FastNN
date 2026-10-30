@@ -2,7 +2,7 @@
 
 use crate::tensor::Tensor;
 
-use super::module::{scoped, Module};
+use super::module::{Module, scoped};
 use super::param::{Buffer, Param};
 
 /// Runs its layers in order.

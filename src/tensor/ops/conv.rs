@@ -3,8 +3,8 @@
 
 use crate::autograd::ops::conv::{Col2ImBackward, Im2ColBackward};
 use crate::cuda::kernels;
-use crate::tensor::storage::Storage;
 use crate::tensor::Tensor;
+use crate::tensor::storage::Storage;
 
 /// A 2-D sliding window. Dilation `d` spreads the taps to `(k-1)·d + 1` pixels.
 #[derive(Clone, Copy, Debug)]

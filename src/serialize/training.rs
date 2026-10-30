@@ -27,7 +27,7 @@ use crate::nn::Module;
 use crate::optim::{Optimizer, OptimizerState};
 use crate::tensor::Tensor;
 
-use super::checkpoint::{load_tensors, save_tensors, Checkpoint};
+use super::checkpoint::{Checkpoint, load_tensors, save_tensors};
 
 /// Name prefixes inside the file. `/` can't clash with the `.` in module paths.
 const PARAM: &str = "param/";

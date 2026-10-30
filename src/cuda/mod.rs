@@ -15,7 +15,7 @@ pub mod buffer;
 pub mod ffi;
 pub mod kernels;
 
-pub use buffer::{empty_cache, CudaBuffer};
+pub use buffer::{CudaBuffer, empty_cache};
 
 use std::sync::OnceLock;
 

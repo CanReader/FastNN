@@ -2,8 +2,8 @@
 
 use crate::autograd::Backward;
 use crate::cuda::kernels;
-use crate::tensor::storage::Storage;
 use crate::tensor::Tensor;
+use crate::tensor::storage::Storage;
 
 /// Scatter-add each row's gradient into its source row, so repeats accumulate.
 pub struct IndexSelectBackward {

@@ -1,6 +1,6 @@
 //! The dataset trait and an in-memory implementation.
 
-use crate::tensor::{shape, Tensor};
+use crate::tensor::{Tensor, shape};
 
 /// A finite, indexable collection of `(input, target)` pairs.
 ///
