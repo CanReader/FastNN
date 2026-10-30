@@ -12,6 +12,15 @@
 //! loss.backward();
 //! assert_eq!(w.grad().unwrap().to_vec(), vec![3.0, 3.0]);
 //! ```
+//!
+//! - [`no_grad`] runs a closure without building a graph. Use it for inference.
+//! - [`detect_anomaly`] panics at the first rule that produces a NaN or inf, naming it.
+//! - [`ops`] holds one backward rule per forward op, in files named like `tensor/ops`.
+//!
+//! A new op is a forward in `tensor/ops`, a rule in [`ops`] that returns gradients
+//! in input order and saves only detached tensors, and a case in
+//! `tests/gradcheck.rs`, which checks every rule against central finite differences
+//! of its own forward.
 
 pub mod anomaly;
 pub mod engine;

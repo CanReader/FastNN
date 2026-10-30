@@ -1,6 +1,15 @@
 //! GPU layer: device setup, memory ([`buffer`]), raw bindings ([`ffi`]) and safe wrappers ([`kernels`]).
 //!
-//! Without the `cuda` feature, `cuda/stubs.c` stands in for the kernels and [`device_count`] is 0.
+//! A training script never calls this module directly. Pick a device with
+//! [`Device::best`](crate::tensor::Device::best) or
+//! [`Device::cuda`](crate::tensor::Device::cuda) and move the model and the loader
+//! to it.
+//!
+//! Without the `cuda` feature, `cuda/stubs.c` stands in for the kernels and
+//! [`device_count`] is 0. With it, `build.rs` compiles `cuda/kernels.cu` with
+//! `nvcc`. Matmul goes through cuBLAS. The other kernels use fast math, so GPU
+//! results differ from the CPU in the last few digits, and `tests/cuda_parity.rs`
+//! checks each one against the CPU path.
 
 pub mod buffer;
 pub mod ffi;

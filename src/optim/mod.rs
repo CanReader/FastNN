@@ -1,18 +1,35 @@
 //! Optimizers and learning-rate schedules.
 //!
 //! An optimizer owns shared [`Param`] handles, so `step()` needs no model borrow.
+//! A [`LrSchedule`] maps the step to a rate, and [`Optimizer::set_lr`] applies it.
 //!
 //! ```
 //! use fastnn::prelude::*;
 //! # let model = Sequential::new().add(Linear::new(4, 2));
 //! # let x = Tensor::randn(&[3, 4]);
 //! let mut opt = Adam::new(model.parameters(), 1e-3);
+//! let schedule = Warmup::new(CosineAnnealing::new(1e-3, 10_000), 500);
 //!
-//! let loss = cross_entropy(&model.forward(&x), &[0, 1, 0]);
-//! opt.zero_grad();
-//! loss.backward();
-//! opt.step();
+//! for step in 0..3 {
+//!     opt.set_lr(schedule.lr_at(step));
+//!     let loss = cross_entropy(&model.forward(&x), &[0, 1, 0]);
+//!
+//!     opt.zero_grad();
+//!     loss.backward();
+//!     clip_grad_norm(opt.parameters(), 1.0);
+//!     opt.step();
+//! }
 //! ```
+//!
+//! - Optimizers: [`SGD`], [`Adam`], [`AdamW`], [`RMSprop`], [`Adagrad`],
+//!   [`Adadelta`], [`RAdam`] and [`Lion`].
+//! - Wrappers: [`Lookahead`] around any optimizer, and [`Ema`] for averaged
+//!   weights to evaluate and ship.
+//! - Schedules: [`Constant`], [`StepDecay`], [`CosineAnnealing`], [`OneCycle`],
+//!   and [`Warmup`] around any of them.
+//! - Clipping: [`clip_grad_norm`] and [`clip_grad_value`].
+//! - [`OptimizerState`] is what [`save_training`](crate::serialize::save_training)
+//!   stores, so a resumed run keeps its moments and step count.
 
 pub mod adagrad;
 pub mod adam;
