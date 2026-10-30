@@ -6,6 +6,14 @@ use super::module::Module;
 use super::param::Param;
 
 /// `y = x · Wᵀ + b` over the last dimension, any number of leading dimensions.
+///
+/// ```
+/// use fastnn::prelude::*;
+///
+/// let layer = Linear::new(4, 2);
+/// let y = layer.forward(&Tensor::randn(&[8, 4]));
+/// assert_eq!(y.shape(), &[8, 2]);
+/// ```
 pub struct Linear {
     pub weight: Param,
     pub bias: Option<Param>,

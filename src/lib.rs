@@ -1,6 +1,19 @@
 //! # FastNN
 //!
-//! A deep learning library in Rust with optional CUDA kernels.
+//! A robust deep learning library in Rust with CUDA kernels.
+//!
+//! FastNN is small on purpose. Every file is one idea, so you can follow
+//! `loss.backward()` from your training loop down to the kernel. It runs on the
+//! CPU out of the box and on NVIDIA GPUs with the `cuda` feature.
+//!
+//! - **Tensors** with broadcasting, batched matmul, reductions, indexing and views.
+//! - **Reverse-mode autograd** with no tape and no global state.
+//! - **Layers**: linear, convolutions, normalization, recurrent, attention and transformers.
+//! - **Generation**: KV cache, sampling and beam search.
+//! - **Optimizers and schedules**: SGD, Adam, AdamW, RMSprop, Lion and more.
+//! - **Checkpoints**: resumable training state and safetensors.
+//!
+//! ## Quick start
 //!
 //! ```no_run
 //! use fastnn::prelude::*;
@@ -31,23 +44,50 @@
 //! # }
 //! ```
 //!
-//! Modules: [`tensor`], [`autograd`], [`nn`], [`optim`], [`data`], [`serialize`], [`cuda`].
+//! ## How it fits together
 //!
-//! Tensor maths panics on shape and device mistakes. [`Result`] is for I/O,
-//! dataset downloads, and CUDA.
+//! - [`tensor`] holds the array type and its ops.
+//! - [`autograd`] holds the backward rules. A tensor made by a differentiable op
+//!   carries a node naming the rule and its inputs, and `backward()` walks them.
+//!   A tensor with no node is plain data, so there is no `requires_grad` flag.
+//! - [`nn`] holds the layers. A layer's weights are [`Param`](nn::Param) handles,
+//!   shared with the optimizer, so `opt.step()` never borrows the model.
+//! - [`optim`] holds the optimizers and learning-rate schedules.
+//! - [`data`] holds datasets and the batching [`DataLoader`](data::DataLoader).
+//! - [`serialize`] holds checkpoints and safetensors.
+//! - [`cuda`] holds the GPU memory and kernel bindings.
+//!
+//! ## Devices
 //!
 //! Everything starts on the CPU. Move the model with
 //! [`Module::to_device`](nn::Module::to_device) and the batches with
-//! [`DataLoader::to_device`](data::DataLoader::to_device).
+//! [`DataLoader::to_device`](data::DataLoader::to_device). Mixing devices panics
+//! instead of copying behind your back.
 //!
 //! ```no_run
 //! # use fastnn::prelude::*;
 //! # let model = Sequential::new();
 //! # let dataset: fastnn::data::TensorDataset = unimplemented!();
-//! let device = Device::best();
+//! let device = Device::best(); // a GPU if there is one, else the CPU
 //! model.to_device(device);
 //! let loader = DataLoader::new(&dataset, 64).to_device(device);
 //! ```
+//!
+//! ## Errors
+//!
+//! A wrong shape or a device mismatch is a bug in the calling code, so those
+//! panic with a message naming both shapes. [`Result`] is for things that fail at
+//! runtime: file I/O, dataset downloads and CUDA. Where a shape comes from a
+//! config file or an upload, the `try_` variants of the tensor ops return an
+//! [`Error`] instead of panicking.
+//!
+//! ## Feature flags
+//!
+//! - `cuda` compiles the GPU kernels with `nvcc` and links the CUDA runtime and
+//!   cuBLAS. It is off by default. Without it everything runs on the CPU, and
+//!   [`Device::cuda`](tensor::Device::cuda) returns an error.
+//!
+//! These docs are built without `cuda`, since docs.rs has no CUDA toolkit.
 
 pub mod autograd;
 pub mod cuda;
