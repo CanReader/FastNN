@@ -14,6 +14,13 @@
 //! every CUDA kernel against the CPU path, and `unsafe` appears only in the
 //! CUDA bindings.
 //!
+//! ![How a training step moves through FastNN](https://raw.githubusercontent.com/CanReader/FastNN/master/assets/architecture.svg)
+//!
+//! A batch goes through the model, the ops build a graph as they run, and the
+//! loss sits at its end. `backward()` walks that graph and leaves a gradient in
+//! each [`Param`](nn::Param). The optimizer holds the same `Param` handles, so
+//! `step()` reads the gradients and updates the weights in place.
+//!
 //! # Quick start
 //!
 //! Train a classifier on MNIST:
@@ -318,30 +325,6 @@
 //! let a = Tensor::randn(&[2, 3]);
 //! assert!(a.try_matmul(&Tensor::randn(&[4, 4])).is_err());
 //! ```
-//!
-//! # How it fits together
-//!
-//! ```text
-//!   data      Dataset ─► DataLoader ─► Batch
-//!                                        │
-//!   nn        Module ──► forward ────────┤    layers hold Param handles
-//!                                        ▼
-//!   tensor    Tensor ops on CPU or CUDA ─┴─► loss
-//!                                        │
-//!   autograd  loss.backward() walks the graph the ops built,
-//!             depositing gradients in each Param's slot
-//!                                        │
-//!   optim     opt.step() reads those slots and updates in place
-//! ```
-//!
-//! A batch goes through the model, the ops build a graph as they run, and the
-//! loss sits at its end. `backward()` walks that graph and leaves a gradient in
-//! each [`Param`](nn::Param). The optimizer holds the same `Param` handles, so
-//! `step()` reads the gradients and updates the weights in place.
-//!
-//! `tensor/ops/` and `autograd/ops/` mirror each other file for file. The forward
-//! for `relu` is in `tensor/ops/activation.rs` and its derivative is in
-//! `autograd/ops/activation.rs`.
 //!
 //! # Tensors
 //!

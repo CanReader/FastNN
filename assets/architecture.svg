@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 400" width="760" height="400" role="img" aria-label="How a training step moves through FastNN">
+<style>
+:root { color: #1f1f1f; }
+.card { fill: #ffffff; }
+@media (prefers-color-scheme: dark) {
+  :root { color: #e6e6e6; }
+  .card { fill: #2b2b2b; }
+}
+</style>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+<path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+</marker>
+</defs>
+<rect class="card" width="760" height="400" rx="8"/>
+<g fill="currentColor" fill-opacity="0.06" stroke="currentColor" stroke-opacity="0.55" stroke-width="1.2">
+<rect x="24" y="40" width="140" height="58" rx="6"/>
+<rect x="194" y="40" width="140" height="58" rx="6"/>
+<rect x="364" y="40" width="80" height="58" rx="6"/>
+<rect x="474" y="40" width="134" height="58" rx="6"/>
+<rect x="638" y="40" width="98" height="58" rx="6"/>
+<rect x="24" y="136" width="712" height="76" rx="6"/>
+<rect x="24" y="240" width="346" height="58" rx="6"/>
+<rect x="390" y="240" width="346" height="58" rx="6"/>
+<rect x="24" y="326" width="712" height="58" rx="6" stroke-dasharray="5 4"/>
+</g>
+<g fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#arrow)">
+<path d="M164,69 H190"/>
+<path d="M334,69 H360"/>
+<path d="M444,69 H470"/>
+<path d="M608,69 H634"/>
+<path d="M687,40 V22 H264 V36"/>
+<path d="M264,98 V132"/>
+<path d="M541,134 V102"/>
+<path d="M197,212 V236"/>
+<path d="M563,212 V236"/>
+</g>
+<g fill="currentColor" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12">
+<text x="475" y="17" font-size="11" text-anchor="middle" fill-opacity="0.8">shared Param handles: gradients land here, step() updates in place</text>
+<text x="34" y="60" font-weight="bold">data</text>
+<text x="34" y="80">Dataset, DataLoader</text>
+<text x="204" y="60" font-weight="bold">nn</text>
+<text x="204" y="80">Module::forward</text>
+<text x="374" y="60" font-weight="bold">loss</text>
+<text x="374" y="80">a Tensor</text>
+<text x="484" y="60" font-weight="bold">autograd</text>
+<text x="484" y="80">loss.backward()</text>
+<text x="648" y="60" font-weight="bold">optim</text>
+<text x="648" y="80">opt.step()</text>
+<text x="272" y="121" font-size="11" fill-opacity="0.8">forward</text>
+<text x="549" y="121" font-size="11" fill-opacity="0.8">backward rules</text>
+<text x="34" y="157" font-weight="bold">tensor</text>
+<text x="34" y="177">ops on CPU or CUDA: arithmetic, matmul, conv, norms, views, indexing</text>
+<text x="34" y="197">each differentiable op attaches a Node, so the graph is the tensors themselves</text>
+<text x="34" y="261" font-weight="bold">CPU</text>
+<text x="34" y="281">Rust, rayon across rows</text>
+<text x="400" y="261" font-weight="bold">CUDA, with the cuda feature</text>
+<text x="400" y="281">kernels.cu, cuBLAS, cached allocator</text>
+<text x="34" y="347" font-weight="bold">serialize</text>
+<text x="34" y="367">save and load weights, save_training and load_training with the optimizer state, safetensors</text>
+</g>
+</svg>
