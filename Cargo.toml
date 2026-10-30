@@ -1,9 +1,9 @@
 [package]
 name = "fastnn"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.87"
-description = "A robust deep learning library in Rust with CUDA kernels"
+description = "A small deep learning library in Rust with optional CUDA kernels"
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/CanReader/FastNN"
