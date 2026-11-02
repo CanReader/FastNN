@@ -107,12 +107,28 @@ fn check_backward(name: &str, inputs: &[Tensor], f: impl Fn(&[Tensor]) -> Tensor
 fn elementwise() {
     let a = sample(&[4, 16]);
     let b = sample(&[4, 16]);
+    // Strictly positive, for the ops that need it.
+    let p = Tensor::from_vec(spread(64, 0.1, 1.9), &[4, 16]);
 
     check_forward("add", &[a.clone(), b.clone()], |x| x[0].add(&x[1]));
+    check_forward("sub", &[a.clone(), b.clone()], |x| x[0].sub(&x[1]));
     check_forward("mul", &[a.clone(), b.clone()], |x| x[0].mul(&x[1]));
+    check_forward("div", &[a.clone(), p.clone()], |x| x[0].div(&x[1]));
+    check_forward("add_scalar", &[a.clone()], |x| x[0].add_scalar(0.25));
+    check_forward("mul_scalar", &[a.clone()], |x| x[0].mul_scalar(-1.5));
+    check_forward("neg", &[a.clone()], |x| x[0].neg());
+    check_forward("abs", &[a.clone()], |x| x[0].abs());
     check_forward("exp", &[a.clone()], |x| x[0].exp());
+    check_forward("sqrt", &[p.clone()], |x| x[0].sqrt());
+    check_forward("log", &[p.clone()], |x| x[0].log());
+    check_forward("pow_scalar", &[p.clone()], |x| x[0].powf(1.5));
     check_forward("clamp", &[a.clone()], |x| x[0].clamp(-0.5, 0.5));
-    check_backward("mul", &[a, b], |x| x[0].mul(&x[1]).sum());
+
+    check_backward("mul", &[a.clone(), b], |x| x[0].mul(&x[1]).sum());
+    check_backward("div", &[a, p.clone()], |x| x[0].div(&x[1]).sum());
+    check_backward("sqrt", &[p.clone()], |x| x[0].sqrt().sum());
+    check_backward("log", &[p.clone()], |x| x[0].log().sum());
+    check_backward("pow_scalar", &[p], |x| x[0].powf(1.5).sum());
 }
 
 #[test]
@@ -195,6 +211,16 @@ fn gemm_batched() {
         &[sample(&[4, 8, 12]), sample(&[4, 6, 12])],
         |x| x[0].matmul_nt(&x[1]),
     );
+    check_forward(
+        "batched tn",
+        &[sample(&[4, 12, 8]), sample(&[4, 12, 6])],
+        |x| x[0].matmul_tn(&x[1]),
+    );
+    check_backward(
+        "batched",
+        &[sample(&[4, 8, 12]), sample(&[4, 12, 6])],
+        |x| x[0].matmul(&x[1]).sum(),
+    );
     // A weight meeting a batch of inputs.
     check_forward(
         "shared weight",
@@ -222,6 +248,8 @@ fn reductions() {
 
     check_forward("sum", &[x.clone()], |x| x[0].sum());
     check_forward("mean", &[x.clone()], |x| x[0].mean());
+    check_forward("max", &[x.clone()], |x| Tensor::scalar(x[0].max()));
+    check_forward("min", &[x.clone()], |x| Tensor::scalar(x[0].min()));
     check_forward("sum_axis 0", &[x.clone()], |x| x[0].sum_axis(0));
     check_forward("sum_axis 1", &[x.clone()], |x| x[0].sum_axis(1));
     check_backward("sum_axis", &[x, sample(&[10])], |x| {
@@ -388,4 +416,115 @@ fn dilated_convolution_lowering() {
             Tensor::from_vec(spread(folded.numel(), -0.9, 0.9), folded.shape()).to(folded.device());
         folded.mul(&weight).sum()
     });
+}
+
+/// Every kernel symbol in `ffi.rs`, with the test here that runs it on both
+/// devices. Plumbing (init, allocation, copies, sync) runs under every case.
+///
+/// This is a list, not a trace. A row says where a kernel is covered; the test
+/// below only checks that the list and `ffi.rs` agree and that each named test
+/// exists. Keep a row honest when you add one.
+const KERNEL_COVERAGE: &[(&str, &str)] = &[
+    ("fastnn_cuda_init", RUNTIME),
+    ("fastnn_cuda_device_count", RUNTIME),
+    ("fastnn_cuda_synchronize", RUNTIME),
+    ("fastnn_cuda_malloc", RUNTIME),
+    ("fastnn_cuda_free", RUNTIME),
+    ("fastnn_cuda_memcpy_h2d", RUNTIME),
+    ("fastnn_cuda_memcpy_d2h", RUNTIME),
+    ("fastnn_cuda_memcpy_d2d", RUNTIME),
+    ("fastnn_cuda_memset", RUNTIME),
+    ("fastnn_cuda_get_memory_info", RUNTIME),
+    ("fastnn_cuda_add", "elementwise"),
+    ("fastnn_cuda_sub", "elementwise"),
+    ("fastnn_cuda_mul", "elementwise"),
+    ("fastnn_cuda_div", "elementwise"),
+    ("fastnn_cuda_add_scalar", "elementwise"),
+    ("fastnn_cuda_mul_scalar", "elementwise"),
+    ("fastnn_cuda_neg", "elementwise"),
+    ("fastnn_cuda_abs", "elementwise"),
+    ("fastnn_cuda_sqrt", "elementwise"),
+    ("fastnn_cuda_exp", "elementwise"),
+    ("fastnn_cuda_log", "elementwise"),
+    ("fastnn_cuda_pow_scalar", "elementwise"),
+    ("fastnn_cuda_clamp", "elementwise"),
+    ("fastnn_cuda_relu", "activations"),
+    ("fastnn_cuda_relu_backward", "activations"),
+    ("fastnn_cuda_sigmoid", "activations"),
+    ("fastnn_cuda_sigmoid_backward", "activations"),
+    ("fastnn_cuda_tanh_forward", "activations"),
+    ("fastnn_cuda_tanh_backward", "activations"),
+    ("fastnn_cuda_gelu", "activations"),
+    ("fastnn_cuda_gelu_backward", "activations"),
+    ("fastnn_cuda_silu", "activations"),
+    ("fastnn_cuda_silu_backward", "activations"),
+    ("fastnn_cuda_leaky_relu", "activations"),
+    ("fastnn_cuda_softmax", "softmax"),
+    ("fastnn_cuda_softmax_backward", "softmax"),
+    ("fastnn_cuda_log_softmax", "softmax"),
+    ("fastnn_cuda_matmul", "gemm_layouts"),
+    ("fastnn_cuda_matmul_nt", "gemm_layouts"),
+    ("fastnn_cuda_matmul_tn", "gemm_layouts"),
+    ("fastnn_cuda_matmul_batched", "gemm_batched"),
+    ("fastnn_cuda_matmul_batched_nt", "gemm_batched"),
+    ("fastnn_cuda_matmul_batched_tn", "gemm_batched"),
+    ("fastnn_cuda_permute_nd", "layout_ops"),
+    ("fastnn_cuda_sum", "reductions"),
+    ("fastnn_cuda_sum_axis", "reductions"),
+    ("fastnn_cuda_mean", "reductions"),
+    ("fastnn_cuda_max", "reductions"),
+    ("fastnn_cuda_min", "reductions"),
+    ("fastnn_cuda_layer_norm_forward", "layer_norm"),
+    ("fastnn_cuda_layer_norm_backward", "layer_norm"),
+    ("fastnn_cuda_im2col", "convolution_lowering"),
+    ("fastnn_cuda_col2im", "convolution_lowering"),
+    ("fastnn_cuda_embedding_forward", "embedding_lookup"),
+    ("fastnn_cuda_embedding_backward", "embedding_lookup"),
+];
+
+const RUNTIME: &str = "runtime";
+
+/// Runs without a GPU: it reads `ffi.rs` and this file, nothing else.
+#[test]
+fn every_kernel_has_a_parity_case() {
+    let declared: Vec<&str> = include_str!("../src/cuda/ffi.rs")
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("pub fn "))
+        .map(|rest| {
+            rest.split(|c: char| !c.is_alphanumeric() && c != '_')
+                .next()
+                .unwrap_or("")
+        })
+        .filter(|name| name.starts_with("fastnn_cuda_"))
+        .collect();
+    let this_file = include_str!("cuda_parity.rs");
+
+    let unlisted: Vec<&str> = declared
+        .iter()
+        .copied()
+        .filter(|symbol| !KERNEL_COVERAGE.iter().any(|(listed, _)| listed == symbol))
+        .collect();
+    let stale: Vec<&str> = KERNEL_COVERAGE
+        .iter()
+        .map(|(symbol, _)| *symbol)
+        .filter(|symbol| !declared.contains(symbol))
+        .collect();
+    let no_such_test: Vec<String> = KERNEL_COVERAGE
+        .iter()
+        .filter(|(_, test)| *test != RUNTIME && !this_file.contains(&format!("\nfn {test}()")))
+        .map(|(symbol, test)| format!("{symbol} -> {test}"))
+        .collect();
+
+    assert!(
+        unlisted.is_empty(),
+        "kernels with no parity row: {unlisted:?}"
+    );
+    assert!(
+        stale.is_empty(),
+        "rows for kernels that no longer exist: {stale:?}"
+    );
+    assert!(
+        no_such_test.is_empty(),
+        "rows naming a test that is not in this file: {no_such_test:?}"
+    );
 }
