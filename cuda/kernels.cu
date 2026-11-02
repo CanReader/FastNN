@@ -32,7 +32,7 @@ extern "C" int fastnn_cuda_init(int device_id) {
 
     if (g_cublas_handle == nullptr) {
         CUBLAS_CHECK(cublasCreate(&g_cublas_handle));
-        CUBLAS_CHECK(cublasSetMathMode(g_cublas_handle, CUBLAS_TF32_TENSOR_OP_MATH));
+        CUBLAS_CHECK(cublasSetMathMode(g_cublas_handle, CUBLAS_DEFAULT_MATH));
     }
 
     if (g_curand_gen == nullptr) {
