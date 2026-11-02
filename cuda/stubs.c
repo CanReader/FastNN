@@ -52,8 +52,6 @@ int fastnn_cuda_matmul_nt(const float*a,const float*b,float*c,int m,int n,int k)
 int fastnn_cuda_matmul_tn(const float*a,const float*b,float*c,int m,int n,int k){(void)a;(void)b;(void)c;(void)m;(void)n;(void)k;STUB;}
 int fastnn_cuda_matmul_batched_nt(const float*a,const float*b,float*c,int m,int n,int k,int batch){(void)a;(void)b;(void)c;(void)m;(void)n;(void)k;(void)batch;STUB;}
 int fastnn_cuda_matmul_batched_tn(const float*a,const float*b,float*c,int m,int n,int k,int batch){(void)a;(void)b;(void)c;(void)m;(void)n;(void)k;(void)batch;STUB;}
-int fastnn_cuda_transpose(const float*i,float*o,int rows,int cols)           {(void)i;(void)o;(void)rows;(void)cols;STUB;}
-int fastnn_cuda_transpose_batched(const float*i,float*o,int b,int rows,int cols){(void)i;(void)o;(void)b;(void)rows;(void)cols;STUB;}
 int fastnn_cuda_permute_nd(const float*i,float*o,const int*os,const int*is,const int*p,int nd,int n){(void)i;(void)o;(void)os;(void)is;(void)p;(void)nd;(void)n;STUB;}
 int fastnn_cuda_init(int device_id)                                           {(void)device_id;STUB;}
 int fastnn_cuda_device_count(void)                                            {return 0;}

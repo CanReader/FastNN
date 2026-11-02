@@ -208,29 +208,6 @@ pub fn matmul_batched_tn(
     })
 }
 
-pub fn transpose_2d(x: &CudaBuffer, rows: usize, cols: usize) -> Result<CudaBuffer> {
-    launch(rows * cols, "transpose", |out| unsafe {
-        ffi::fastnn_cuda_transpose(x.as_ptr(), out.as_mut_ptr(), rows as c_int, cols as c_int)
-    })
-}
-
-pub fn transpose_batched(
-    x: &CudaBuffer,
-    batch: usize,
-    rows: usize,
-    cols: usize,
-) -> Result<CudaBuffer> {
-    launch(batch * rows * cols, "transpose_batched", |out| unsafe {
-        ffi::fastnn_cuda_transpose_batched(
-            x.as_ptr(),
-            out.as_mut_ptr(),
-            batch as c_int,
-            rows as c_int,
-            cols as c_int,
-        )
-    })
-}
-
 /// Gathers `numel` elements by decoding each output index with `out_strides` and re-encoding with
 /// `in_strides` permuted by `perm`. A stride of 0 broadcasts.
 pub fn permute_nd(

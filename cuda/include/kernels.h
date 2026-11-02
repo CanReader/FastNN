@@ -60,8 +60,6 @@ int fastnn_cuda_matmul_nt(const float* a, const float* b, float* c, int m, int n
 int fastnn_cuda_matmul_tn(const float* a, const float* b, float* c, int m, int n, int k);
 int fastnn_cuda_matmul_batched_nt(const float* a, const float* b, float* c, int m, int n, int k, int batch_size);
 int fastnn_cuda_matmul_batched_tn(const float* a, const float* b, float* c, int m, int n, int k, int batch_size);
-int fastnn_cuda_transpose(const float* input, float* output, int rows, int cols);
-int fastnn_cuda_transpose_batched(const float* input, float* output, int batch_size, int rows, int cols);
 int fastnn_cuda_permute_nd(const float* input, float* output, const int* out_strides, const int* in_strides, const int* perm, int ndim, int numel);
 
 int fastnn_cuda_sum(const float* input, float* output, size_t n);
