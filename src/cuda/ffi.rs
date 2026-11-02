@@ -219,14 +219,6 @@ unsafe extern "C" {
         batch: c_int,
     ) -> c_int;
 
-    pub fn fastnn_cuda_transpose(x: *const f32, out: *mut f32, rows: c_int, cols: c_int) -> c_int;
-    pub fn fastnn_cuda_transpose_batched(
-        x: *const f32,
-        out: *mut f32,
-        batch: c_int,
-        rows: c_int,
-        cols: c_int,
-    ) -> c_int;
     /// General gather: `out[i] = x[dot(coords(i, out_strides), in_strides[perm])]`.
     /// A stride of 0 in `in_strides` broadcasts that dimension, which is how
     /// `expand` reuses this kernel.

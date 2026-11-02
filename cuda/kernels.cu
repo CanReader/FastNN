@@ -494,62 +494,6 @@ extern "C" int fastnn_cuda_matmul_batched(const float* a, const float* b, float*
     return 0;
 }
 
-__global__ void kernel_transpose(const float* input, float* output, int rows, int cols) {
-    __shared__ float tile[TILE_SIZE][TILE_SIZE + 1]; // +1 pad avoids bank conflicts
-
-    int x = blockIdx.x * TILE_SIZE + threadIdx.x;
-    int y = blockIdx.y * TILE_SIZE + threadIdx.y;
-
-    if (x < cols && y < rows) {
-        tile[threadIdx.y][threadIdx.x] = input[y * cols + x];
-    }
-    __syncthreads();
-
-    x = blockIdx.y * TILE_SIZE + threadIdx.x;
-    y = blockIdx.x * TILE_SIZE + threadIdx.y;
-
-    if (x < rows && y < cols) {
-        output[y * rows + x] = tile[threadIdx.x][threadIdx.y];
-    }
-}
-
-extern "C" int fastnn_cuda_transpose(const float* input, float* output, int rows, int cols) {
-    dim3 threads(TILE_SIZE, TILE_SIZE);
-    dim3 blocks(div_ceil(cols, TILE_SIZE), div_ceil(rows, TILE_SIZE));
-    kernel_transpose<<<blocks, threads>>>(input, output, rows, cols);
-    CUDA_CHECK(cudaGetLastError());
-    return 0;
-}
-
-__global__ void kernel_transpose_batched(const float* input, float* output, int batch_size, int rows, int cols) {
-    int b = blockIdx.z;
-    if (b >= batch_size) return;
-
-    __shared__ float tile[TILE_SIZE][TILE_SIZE + 1];
-    int offset = b * rows * cols;
-
-    int x = blockIdx.x * TILE_SIZE + threadIdx.x;
-    int y = blockIdx.y * TILE_SIZE + threadIdx.y;
-
-    if (x < cols && y < rows)
-        tile[threadIdx.y][threadIdx.x] = input[offset + y * cols + x];
-    __syncthreads();
-
-    x = blockIdx.y * TILE_SIZE + threadIdx.x;
-    y = blockIdx.x * TILE_SIZE + threadIdx.y;
-
-    if (x < rows && y < cols)
-        output[offset + y * rows + x] = tile[threadIdx.x][threadIdx.y];
-}
-
-extern "C" int fastnn_cuda_transpose_batched(const float* input, float* output, int batch_size, int rows, int cols) {
-    dim3 threads(TILE_SIZE, TILE_SIZE);
-    dim3 blocks(div_ceil(cols, TILE_SIZE), div_ceil(rows, TILE_SIZE), batch_size);
-    kernel_transpose_batched<<<blocks, threads>>>(input, output, batch_size, rows, cols);
-    CUDA_CHECK(cudaGetLastError());
-    return 0;
-}
-
 struct PermuteNDParams {
     int out_strides[PERMUTE_MAX_DIMS];
     int in_strides[PERMUTE_MAX_DIMS];
