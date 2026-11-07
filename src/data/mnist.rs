@@ -120,6 +120,9 @@ pub fn default_cache_dir() -> PathBuf {
 }
 
 /// Download and decompress any of `files` not already cached.
+///
+/// Writes to a `.partial` temporary file first and renames on success so that
+/// an interrupted download never leaves a truncated file in the cache.
 fn download_missing(cache: &Path, files: &[&str]) -> Result<()> {
     fs::create_dir_all(cache)?;
     for name in files {
@@ -127,6 +130,8 @@ fn download_missing(cache: &Path, files: &[&str]) -> Result<()> {
         if target.exists() {
             continue;
         }
+
+        let partial = cache.join(format!("{name}.partial"));
 
         let url = format!("{MIRROR}/{name}.gz");
         eprintln!("mnist: downloading {url}");
@@ -142,7 +147,8 @@ fn download_missing(cache: &Path, files: &[&str]) -> Result<()> {
         let mut raw = Vec::new();
         flate2::read::GzDecoder::new(&compressed[..]).read_to_end(&mut raw)?;
 
-        fs::File::create(&target)?.write_all(&raw)?;
+        fs::File::create(&partial)?.write_all(&raw)?;
+        fs::rename(&partial, &target)?;
     }
     Ok(())
 }
@@ -184,6 +190,44 @@ fn parse_labels(bytes: &[u8]) -> Result<(Vec<f32>, usize)> {
         bytes[LABEL_HEADER..].iter().map(|&b| b as f32).collect(),
         count,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join("fastnn_test")
+            .join(name);
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn truncated_file_rejected_by_parser() {
+        let cache = test_dir("truncated_file");
+        let target = cache.join("train-images-idx3-ubyte");
+
+        fs::write(&target, b"truncated").unwrap();
+        assert!(target.exists());
+
+        let bytes = fs::read(&target).unwrap();
+        assert!(parse_images(&bytes).is_err());
+    }
+
+    #[test]
+    fn partial_suffix_not_mistaken_for_final() {
+        let cache = test_dir("partial_suffix");
+        let name = "train-images-idx3-ubyte";
+        let partial = cache.join(format!("{name}.partial"));
+
+        fs::write(&partial, b"junk").unwrap();
+
+        let target = cache.join(name);
+        assert!(!target.exists(), ".partial must not satisfy the exists() check");
+    }
 }
 
 /// Read `words` big-endian u32s and check the magic number.
