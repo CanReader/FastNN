@@ -61,8 +61,8 @@ impl Mnist {
         let (image_file, label_file) = split.files();
         download_missing(cache, &[image_file, label_file])?;
 
-        let (images, image_count) = parse_images(&fs::read(cache.join(image_file))?)?;
-        let (labels, label_count) = parse_labels(&fs::read(cache.join(label_file))?)?;
+        let (images, image_count) = parse_images(&read_or_redownload(cache, image_file)?)?;
+        let (labels, label_count) = parse_labels(&read_or_redownload(cache, label_file)?)?;
         if image_count != label_count {
             return Err(Error::Dataset(format!(
                 "mnist: {image_count} images but {label_count} labels"
@@ -119,10 +119,49 @@ pub fn default_cache_dir() -> PathBuf {
         .join("mnist")
 }
 
+/// Write `bytes` to `target` atomically: write a per-process temporary file,
+/// `sync_all`, then rename into place. A crash at any point leaves the
+/// target either absent or complete.
+fn write_atomic(target: &Path, bytes: &[u8]) -> Result<()> {
+    let name = target
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let partial = target.with_file_name(format!("{name}.{}.partial", std::process::id()));
+
+    let mut file = fs::File::create(&partial)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    fs::rename(&partial, target)?;
+    Ok(())
+}
+
+/// Fetch a single file from the mirror, decompress, and write atomically.
+fn fetch_and_write(cache: &Path, name: &str) -> Result<()> {
+    let url = format!("{MIRROR}/{name}.gz");
+    eprintln!("mnist: downloading {url}");
+    let response = ureq::get(&url)
+        .call()
+        .map_err(|e| Error::Dataset(format!("could not fetch {url}: {e}")))?;
+
+    let mut compressed = Vec::new();
+    response
+        .into_body()
+        .into_reader()
+        .read_to_end(&mut compressed)?;
+    let mut raw = Vec::new();
+    flate2::read::GzDecoder::new(&compressed[..]).read_to_end(&mut raw)?;
+
+    write_atomic(&cache.join(name), &raw)
+}
+
 /// Download and decompress any of `files` not already cached.
 ///
-/// Writes to a `.partial` temporary file first and renames on success so that
-/// an interrupted download never leaves a truncated file in the cache.
+/// Writes to a per-process `.partial` temporary file, calls `sync_all`, and
+/// renames on success so that an interrupted or concurrent download never
+/// leaves a truncated file in the cache.  If a cached file exists but is
+/// corrupt (truncated by an earlier crash), it is deleted and re-downloaded
+/// once.
 fn download_missing(cache: &Path, files: &[&str]) -> Result<()> {
     fs::create_dir_all(cache)?;
     for name in files {
@@ -130,27 +169,28 @@ fn download_missing(cache: &Path, files: &[&str]) -> Result<()> {
         if target.exists() {
             continue;
         }
-
-        let partial = cache.join(format!("{name}.partial"));
-
-        let url = format!("{MIRROR}/{name}.gz");
-        eprintln!("mnist: downloading {url}");
-        let response = ureq::get(&url)
-            .call()
-            .map_err(|e| Error::Dataset(format!("could not fetch {url}: {e}")))?;
-
-        let mut compressed = Vec::new();
-        response
-            .into_body()
-            .into_reader()
-            .read_to_end(&mut compressed)?;
-        let mut raw = Vec::new();
-        flate2::read::GzDecoder::new(&compressed[..]).read_to_end(&mut raw)?;
-
-        fs::File::create(&partial)?.write_all(&raw)?;
-        fs::rename(&partial, &target)?;
+        fetch_and_write(cache, name)?;
     }
     Ok(())
+}
+
+/// Try to parse a cached file; if it fails, delete it and re-download once.
+fn read_or_redownload(cache: &Path, name: &str) -> Result<Vec<u8>> {
+    let target = cache.join(name);
+    let bytes = fs::read(&target)?;
+    let header_ok = if bytes.len() >= 4 {
+        let magic = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        magic == IMAGE_MAGIC || magic == LABEL_MAGIC
+    } else {
+        false
+    };
+    if header_ok {
+        return Ok(bytes);
+    }
+    eprintln!("mnist: cached {name} is corrupt, re-downloading");
+    let _ = fs::remove_file(&target);
+    fetch_and_write(cache, name)?;
+    Ok(fs::read(&target)?)
 }
 
 /// IDX images: magic, count, rows, cols, then one byte per pixel.
@@ -227,6 +267,40 @@ mod tests {
 
         let target = cache.join(name);
         assert!(!target.exists(), ".partial must not satisfy the exists() check");
+    }
+
+    #[test]
+    fn write_atomic_creates_file_with_correct_content() {
+        let dir = test_dir("write_atomic_ok");
+        let target = dir.join("output.bin");
+        let payload = b"hello, atomic world";
+
+        write_atomic(&target, payload).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), payload);
+    }
+
+    #[test]
+    fn write_atomic_leaves_no_partial_on_success() {
+        let dir = test_dir("write_atomic_no_partial");
+        let target = dir.join("data.bin");
+        write_atomic(&target, b"ok").unwrap();
+
+        let partials: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".partial"))
+            .collect();
+        assert!(partials.is_empty(), "no .partial files should remain");
+    }
+
+    #[test]
+    fn write_atomic_overwrites_existing() {
+        let dir = test_dir("write_atomic_overwrite");
+        let target = dir.join("file.bin");
+        fs::write(&target, b"old").unwrap();
+
+        write_atomic(&target, b"new").unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"new");
     }
 }
 
