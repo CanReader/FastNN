@@ -84,12 +84,11 @@ impl Optimizer for RMSprop {
 
             let square = blend(self.square_avg[index].as_ref(), &grad.square(), self.alpha);
 
-            // The variance can dip below zero in floating point, so eps goes inside the root.
             let denominator = if self.centered {
                 let mean = blend(self.grad_avg[index].as_ref(), &grad, self.alpha);
                 let variance = square.sub(&mean.square());
                 self.grad_avg[index] = Some(mean);
-                variance.add_scalar(self.eps).sqrt()
+                variance.clamp(0.0, f32::INFINITY).sqrt().add_scalar(self.eps)
             } else {
                 square.sqrt().add_scalar(self.eps)
             };
@@ -160,31 +159,53 @@ mod tests {
         );
     }
 
-    /// With a constant gradient the variance estimate shrinks, so late steps
-    /// dwarf early ones. The plain form settles at |g| instead.
+    /// With a constant gradient, centered RMSprop drives variance to zero,
+    /// so the denominator converges to eps.  Step size should settle to a
+    /// steady value -- not keep growing without bound.
     #[test]
-    fn centered_variant_accelerates_on_constant_gradients() {
+    fn centered_variant_stabilises_on_constant_gradients() {
         let param = Param::new(Tensor::from_vec(vec![0.0], &[1]));
         let mut opt = RMSprop::new(vec![param.clone()], 0.01)
             .alpha(0.9)
             .centered();
 
         let mut previous = 0.0f32;
-        let mut first_step_size = 0.0f32;
-        let mut step_size = 0.0f32;
-        for iteration in 0..100 {
+        let mut step_sizes = Vec::new();
+        for _ in 0..200 {
             param.set_grad(Tensor::from_vec(vec![1.0], &[1]));
             opt.step();
             let value = param.value().to_vec()[0];
-            step_size = (previous - value).abs();
-            if iteration == 0 {
-                first_step_size = step_size;
-            }
+            step_sizes.push((previous - value).abs());
             previous = value;
         }
+        // The last few steps should have converged: within 1% of each other.
+        let last = step_sizes[step_sizes.len() - 1];
+        let prev = step_sizes[step_sizes.len() - 2];
         assert!(
-            step_size > 5.0 * first_step_size,
-            "late steps ({step_size}) should dwarf the first ({first_step_size})"
+            (last - prev).abs() / last < 0.01,
+            "step size should stabilise, but last two were {prev} and {last}"
         );
+        // And none should be NaN or infinite.
+        assert!(
+            step_sizes.iter().all(|s| s.is_finite()),
+            "step sizes must stay finite"
+        );
+    }
+
+    /// Large gradients (~1e4) trigger cancellation error in E[g^2] - E[g]^2.
+    /// The variance can go negative; verify we clamp it and never produce NaN.
+    #[test]
+    fn centered_large_gradients_no_nan() {
+        let param = Param::new(Tensor::from_vec(vec![0.0], &[1]));
+        let mut opt = RMSprop::new(vec![param.clone()], 1e-3)
+            .alpha(0.99)
+            .centered();
+
+        for _ in 0..100 {
+            param.set_grad(Tensor::from_vec(vec![1e4], &[1]));
+            opt.step();
+            let value = param.value().to_vec()[0];
+            assert!(value.is_finite(), "parameter became NaN or Inf");
+        }
     }
 }
