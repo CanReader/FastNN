@@ -119,7 +119,9 @@ jobs:
   # suite notices there is no device at runtime and skips itself.
   cuda:
     name: CUDA build
-    runs-on: ubuntu-latest
+    # Pinned: when ubuntu-latest moved to 26.04 the toolkit action asked
+    # NVIDIA's ubuntu2604 repo for a package that is not there yet.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
@@ -127,8 +129,8 @@ jobs:
         with:
           components: clippy
 
-      # No version pin: the action's default tracks what the runner image can
-      # actually install, and any recent nvcc compiles these kernels.
+      # No CUDA version pin: the action's default follows the runner image, and
+      # any recent nvcc compiles these kernels.
       - name: Install CUDA toolkit (compile only, no driver)
         uses: Jimver/cuda-toolkit@v0.2.36
         with:
