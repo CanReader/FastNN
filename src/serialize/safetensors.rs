@@ -8,12 +8,14 @@
 //! ```
 
 use std::collections::{BTreeMap, HashMap};
+use std::io::Write;
 use std::path::Path;
 
 use crate::error::{Error, Result};
 use crate::nn::Module;
 use crate::tensor::Tensor;
 
+use super::atomic::write_atomic;
 use super::half::{f32_from_bf16, f32_from_f16};
 
 /// What a partial load did. Empty `missing` and `unexpected` mean an exact match.
@@ -28,6 +30,9 @@ pub struct LoadReport {
 }
 
 /// Write a module's parameters and buffers as `F32` safetensors.
+///
+/// The write is atomic: data lands in a per-process temp file, is fsynced, then
+/// renamed over `path`, so a crash mid-write never destroys an existing file.
 pub fn save_safetensors(module: &dyn Module, path: impl AsRef<Path>) -> Result<()> {
     let mut tensors: BTreeMap<String, Tensor> = BTreeMap::new();
     for (name, param) in module.named_parameters() {
@@ -56,16 +61,19 @@ pub fn save_safetensors(module: &dyn Module, path: impl AsRef<Path>) -> Result<(
     }
     header.push('}');
 
-    let mut out = Vec::with_capacity(8 + header.len() + offset);
-    out.extend_from_slice(&(header.len() as u64).to_le_bytes());
-    out.extend_from_slice(header.as_bytes());
+    let mut buf = Vec::with_capacity(8 + header.len() + offset);
+    buf.extend_from_slice(&(header.len() as u64).to_le_bytes());
+    buf.extend_from_slice(header.as_bytes());
     for tensor in tensors.values() {
         for value in tensor.to_vec() {
-            out.extend_from_slice(&value.to_le_bytes());
+            buf.extend_from_slice(&value.to_le_bytes());
         }
     }
-    std::fs::write(path, out)?;
-    Ok(())
+
+    write_atomic(path.as_ref(), |file| {
+        file.write_all(&buf)?;
+        Ok(())
+    })
 }
 
 /// Load matching tensors from a safetensors file into a module.

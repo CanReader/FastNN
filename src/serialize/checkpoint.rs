@@ -21,6 +21,8 @@ use crate::error::{Error, Result};
 use crate::nn::Module;
 use crate::tensor::Tensor;
 
+use super::atomic::write_atomic;
+
 const MAGIC: u32 = 0x4644_4C00;
 const VERSION: u32 = 1;
 
@@ -66,28 +68,33 @@ pub fn load(module: &dyn Module, path: impl AsRef<Path>) -> Result<()> {
 }
 
 /// Write named tensors to `path`.
+///
+/// The write is atomic: data lands in a per-process temp file, is fsynced, then
+/// renamed over `path`, so a crash mid-write never destroys an existing file.
 pub fn save_tensors(tensors: &Checkpoint, path: impl AsRef<Path>) -> Result<()> {
-    let mut out = BufWriter::new(File::create(path)?);
+    write_atomic(path.as_ref(), |file| {
+        let mut out = BufWriter::new(&mut *file);
 
-    write_u32(&mut out, MAGIC)?;
-    write_u32(&mut out, VERSION)?;
-    write_u32(&mut out, tensors.len() as u32)?;
+        write_u32(&mut out, MAGIC)?;
+        write_u32(&mut out, VERSION)?;
+        write_u32(&mut out, tensors.len() as u32)?;
 
-    for (name, tensor) in tensors {
-        write_u32(&mut out, name.len() as u32)?;
-        out.write_all(name.as_bytes())?;
+        for (name, tensor) in tensors {
+            write_u32(&mut out, name.len() as u32)?;
+            out.write_all(name.as_bytes())?;
 
-        write_u32(&mut out, tensor.ndim() as u32)?;
-        for &dim in tensor.shape() {
-            write_u32(&mut out, dim as u32)?;
+            write_u32(&mut out, tensor.ndim() as u32)?;
+            for &dim in tensor.shape() {
+                write_u32(&mut out, dim as u32)?;
+            }
+            for value in tensor.to_vec() {
+                out.write_all(&value.to_le_bytes())?;
+            }
         }
-        for value in tensor.to_vec() {
-            out.write_all(&value.to_le_bytes())?;
-        }
-    }
 
-    out.flush()?;
-    Ok(())
+        out.flush()?;
+        Ok(())
+    })
 }
 
 /// Read named tensors from `path`.

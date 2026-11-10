@@ -25,6 +25,7 @@
 //! # Ok::<(), fastnn::Error>(())
 //! ```
 
+pub(crate) mod atomic;
 pub mod checkpoint;
 pub mod half;
 pub mod safetensors;
