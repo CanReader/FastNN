@@ -1,8 +1,8 @@
-//! Resuming, anomaly detection, freezing and the fallible ops.
+//! Resuming, anomaly detection, atomic writes, freezing and the fallible ops.
 
 use fastnn::autograd::detect_anomaly;
 use fastnn::prelude::*;
-use fastnn::serialize::{load_training, save_training};
+use fastnn::serialize::{load_tensors, load_training, save_tensors, save_training, Checkpoint};
 
 /// Deleted on drop.
 struct TempFile(std::path::PathBuf);
@@ -406,4 +406,108 @@ fn fallible_ops_still_build_the_graph() {
 
     x.try_matmul(&w.tensor()).unwrap().sum().backward();
     assert!(w.grad().is_some(), "try_matmul dropped the graph");
+}
+
+// ---- Atomic checkpoint writes --------------------------------------------------
+
+#[test]
+fn truncated_fdl_checkpoint_does_not_destroy_the_good_copy() {
+    let file = TempFile::new("atomic-fdl");
+    let model = small_model();
+    save(&model, file.path()).unwrap();
+
+    // Record the weights of the good checkpoint.
+    let good = model.parameters()[0].value().to_vec();
+
+    // Verify the good checkpoint loads.
+    let loaded = load_tensors(file.path()).unwrap();
+    assert!(!loaded.is_empty(), "good checkpoint should have tensors");
+
+    // Simulate a crash: truncate the file to a few bytes.
+    std::fs::write(file.path(), &[0u8; 8]).unwrap();
+
+    // The truncated file must fail to load.
+    assert!(
+        load_tensors(file.path()).is_err(),
+        "a truncated fdl checkpoint should not parse"
+    );
+
+    // Overwrite the truncated file with a fresh save -- the atomic write must
+    // succeed even when the target already exists and is corrupt.
+    save(&model, file.path()).unwrap();
+    let fresh = small_model();
+    load(&fresh, file.path()).unwrap();
+    assert_eq!(
+        fresh.parameters()[0].value().to_vec(),
+        good,
+        "re-saved checkpoint should match the original weights"
+    );
+}
+
+#[test]
+fn truncated_safetensors_does_not_destroy_the_good_copy() {
+    let file = TempFile::new("atomic-st");
+    let path = file.path().with_extension("safetensors");
+
+    manual_seed(42);
+    let model = Sequential::new().add(Linear::new(4, 2));
+    save_safetensors(&model, &path).unwrap();
+
+    let good = model.parameters()[0].value().to_vec();
+
+    // Simulate a crash: truncate the file.
+    std::fs::write(&path, &[0u8; 4]).unwrap();
+
+    // The truncated file must fail to load.
+    let fresh = Sequential::new().add(Linear::new(4, 2));
+    assert!(
+        load_safetensors(&fresh, &path).is_err(),
+        "a truncated safetensors file should not parse"
+    );
+
+    // Re-save over the corrupt file; the atomic write must succeed.
+    save_safetensors(&model, &path).unwrap();
+    let reloaded = Sequential::new().add(Linear::new(4, 2));
+    let report = load_safetensors(&reloaded, &path).unwrap();
+    assert!(report.missing.is_empty());
+    assert_eq!(
+        reloaded.parameters()[0].value().to_vec(),
+        good,
+        "re-saved safetensors should match the original weights"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn atomic_write_cleans_up_temp_on_fdl_save() {
+    // After a successful save the .partial.{pid} file must not linger.
+    let file = TempFile::new("atomic-cleanup");
+    let model = small_model();
+    save(&model, file.path()).unwrap();
+
+    let tmp = file
+        .path()
+        .with_file_name(format!(
+            "{}.partial.{}",
+            file.path().file_name().unwrap().to_str().unwrap(),
+            std::process::id()
+        ));
+    assert!(
+        !tmp.exists(),
+        "temp file should be renamed away after a successful save"
+    );
+}
+
+#[test]
+fn save_tensors_round_trips_through_atomic_write() {
+    let file = TempFile::new("atomic-rt");
+    let mut tensors = Checkpoint::new();
+    tensors.insert("a".into(), Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3]));
+    tensors.insert("b".into(), Tensor::from_vec(vec![4.0], &[1]));
+
+    save_tensors(&tensors, file.path()).unwrap();
+    let loaded = load_tensors(file.path()).unwrap();
+    assert_eq!(loaded.len(), 2);
+    assert_eq!(loaded["a"].to_vec(), vec![1.0, 2.0, 3.0]);
+    assert_eq!(loaded["b"].to_vec(), vec![4.0]);
 }
