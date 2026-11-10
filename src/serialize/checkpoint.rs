@@ -87,9 +87,12 @@ pub fn save_tensors(tensors: &Checkpoint, path: impl AsRef<Path>) -> Result<()> 
             for &dim in tensor.shape() {
                 write_u32(&mut out, dim as u32)?;
             }
-            for value in tensor.to_vec() {
-                out.write_all(&value.to_le_bytes())?;
+            let values = tensor.to_vec();
+            let mut buf = vec![0u8; values.len() * 4];
+            for (i, value) in values.iter().enumerate() {
+                buf[i * 4..i * 4 + 4].copy_from_slice(&value.to_le_bytes());
             }
+            out.write_all(&buf)?;
         }
 
         out.flush()?;
@@ -125,11 +128,17 @@ pub fn load_tensors(path: impl AsRef<Path>) -> Result<Checkpoint> {
             .map(|_| read_u32(&mut input).map(|d| d as usize))
             .collect::<Result<_>>()?;
 
-        let mut data = vec![0.0f32; shape.iter().product()];
-        for value in &mut data {
-            let mut bytes = [0u8; 4];
-            input.read_exact(&mut bytes)?;
-            *value = f32::from_le_bytes(bytes);
+        let numel: usize = shape.iter().product();
+        let mut buf = vec![0u8; numel * 4];
+        input.read_exact(&mut buf)?;
+        let mut data = vec![0.0f32; numel];
+        for (i, value) in data.iter_mut().enumerate() {
+            *value = f32::from_le_bytes([
+                buf[i * 4],
+                buf[i * 4 + 1],
+                buf[i * 4 + 2],
+                buf[i * 4 + 3],
+            ]);
         }
 
         tensors.insert(name, Tensor::from_vec(data, &shape));
