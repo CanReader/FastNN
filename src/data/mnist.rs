@@ -4,6 +4,7 @@
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::error::{Error, Result};
 use crate::tensor::Tensor;
@@ -59,10 +60,8 @@ impl Mnist {
     /// Load a split from an explicit directory.
     pub fn load_from(cache: &Path, split: Split) -> Result<Mnist> {
         let (image_file, label_file) = split.files();
-        download_missing(cache, &[image_file, label_file])?;
-
-        let (images, image_count) = parse_images(&read_or_redownload(cache, image_file)?)?;
-        let (labels, label_count) = parse_labels(&read_or_redownload(cache, label_file)?)?;
+        let (images, image_count) = load_cached(cache, image_file, parse_images, fetch)?;
+        let (labels, label_count) = load_cached(cache, label_file, parse_labels, fetch)?;
         if image_count != label_count {
             return Err(Error::Dataset(format!(
                 "mnist: {image_count} images but {label_count} labels"
@@ -119,25 +118,37 @@ pub fn default_cache_dir() -> PathBuf {
         .join("mnist")
 }
 
-/// Write `bytes` to `target` atomically: write a per-process temporary file,
-/// `sync_all`, then rename into place. A crash at any point leaves the
-/// target either absent or complete.
-fn write_atomic(target: &Path, bytes: &[u8]) -> Result<()> {
-    let name = target
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy();
-    let partial = target.with_file_name(format!("{name}.{}.partial", std::process::id()));
-
-    let mut file = fs::File::create(&partial)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    fs::rename(&partial, target)?;
-    Ok(())
+/// Parse a cached file, downloading it first when it is missing.
+///
+/// A cached file that does not parse is deleted and fetched once more. Without
+/// that, a file truncated by an interrupted write would be trusted forever,
+/// since the cache check only asks whether the file exists.
+fn load_cached<T>(
+    cache: &Path,
+    name: &str,
+    parse: fn(&[u8]) -> Result<T>,
+    fetch: impl Fn(&Path, &str) -> Result<Vec<u8>>,
+) -> Result<T> {
+    let target = cache.join(name);
+    if target.exists() {
+        match parse(&fs::read(&target)?) {
+            Ok(parsed) => return Ok(parsed),
+            Err(e) => {
+                eprintln!(
+                    "mnist: {} is not usable ({e}), downloading it again",
+                    target.display()
+                );
+                let _ = fs::remove_file(&target);
+            }
+        }
+    }
+    fs::create_dir_all(cache)?;
+    let bytes = fetch(cache, name)?;
+    parse(&bytes).map_err(|e| Error::Dataset(format!("mnist: {}: {e}", target.display())))
 }
 
-/// Fetch a single file from the mirror, decompress, and write atomically.
-fn fetch_and_write(cache: &Path, name: &str) -> Result<()> {
+/// Download `name` from the mirror, decompress it, and write it into the cache.
+fn fetch(cache: &Path, name: &str) -> Result<Vec<u8>> {
     let url = format!("{MIRROR}/{name}.gz");
     eprintln!("mnist: downloading {url}");
     let response = ureq::get(&url)
@@ -152,45 +163,33 @@ fn fetch_and_write(cache: &Path, name: &str) -> Result<()> {
     let mut raw = Vec::new();
     flate2::read::GzDecoder::new(&compressed[..]).read_to_end(&mut raw)?;
 
-    write_atomic(&cache.join(name), &raw)
+    write_atomic(&cache.join(name), &raw)?;
+    Ok(raw)
 }
 
-/// Download and decompress any of `files` not already cached.
-///
-/// Writes to a per-process `.partial` temporary file, calls `sync_all`, and
-/// renames on success so that an interrupted or concurrent download never
-/// leaves a truncated file in the cache.  If a cached file exists but is
-/// corrupt (truncated by an earlier crash), it is deleted and re-downloaded
-/// once.
-fn download_missing(cache: &Path, files: &[&str]) -> Result<()> {
-    fs::create_dir_all(cache)?;
-    for name in files {
-        let target = cache.join(name);
-        if target.exists() {
-            continue;
-        }
-        fetch_and_write(cache, name)?;
-    }
-    Ok(())
-}
+/// Write `bytes` to `target` so a crash leaves it either absent or complete:
+/// a temporary file next to it, `sync_all`, then a rename into place.
+fn write_atomic(target: &Path, bytes: &[u8]) -> Result<()> {
+    // The pid and a counter keep concurrent writers, in and across processes,
+    // off each other's temporary file.
+    static SERIAL: AtomicU32 = AtomicU32::new(0);
+    let name = target.file_name().unwrap_or_default().to_string_lossy();
+    let partial = target.with_file_name(format!(
+        "{name}.{}.{}.partial",
+        std::process::id(),
+        SERIAL.fetch_add(1, Ordering::Relaxed)
+    ));
 
-/// Try to parse a cached file; if it fails, delete it and re-download once.
-fn read_or_redownload(cache: &Path, name: &str) -> Result<Vec<u8>> {
-    let target = cache.join(name);
-    let bytes = fs::read(&target)?;
-    let header_ok = if bytes.len() >= 4 {
-        let magic = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-        magic == IMAGE_MAGIC || magic == LABEL_MAGIC
-    } else {
-        false
-    };
-    if header_ok {
-        return Ok(bytes);
+    let written = (|| {
+        let mut file = fs::File::create(&partial)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        fs::rename(&partial, target)
+    })();
+    if written.is_err() {
+        let _ = fs::remove_file(&partial);
     }
-    eprintln!("mnist: cached {name} is corrupt, re-downloading");
-    let _ = fs::remove_file(&target);
-    fetch_and_write(cache, name)?;
-    Ok(fs::read(&target)?)
+    written.map_err(Error::from)
 }
 
 /// IDX images: magic, count, rows, cols, then one byte per pixel.
@@ -232,78 +231,6 @@ fn parse_labels(bytes: &[u8]) -> Result<(Vec<f32>, usize)> {
     ))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn test_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir()
-            .join("fastnn_test")
-            .join(name);
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    #[test]
-    fn truncated_file_rejected_by_parser() {
-        let cache = test_dir("truncated_file");
-        let target = cache.join("train-images-idx3-ubyte");
-
-        fs::write(&target, b"truncated").unwrap();
-        assert!(target.exists());
-
-        let bytes = fs::read(&target).unwrap();
-        assert!(parse_images(&bytes).is_err());
-    }
-
-    #[test]
-    fn partial_suffix_not_mistaken_for_final() {
-        let cache = test_dir("partial_suffix");
-        let name = "train-images-idx3-ubyte";
-        let partial = cache.join(format!("{name}.partial"));
-
-        fs::write(&partial, b"junk").unwrap();
-
-        let target = cache.join(name);
-        assert!(!target.exists(), ".partial must not satisfy the exists() check");
-    }
-
-    #[test]
-    fn write_atomic_creates_file_with_correct_content() {
-        let dir = test_dir("write_atomic_ok");
-        let target = dir.join("output.bin");
-        let payload = b"hello, atomic world";
-
-        write_atomic(&target, payload).unwrap();
-        assert_eq!(fs::read(&target).unwrap(), payload);
-    }
-
-    #[test]
-    fn write_atomic_leaves_no_partial_on_success() {
-        let dir = test_dir("write_atomic_no_partial");
-        let target = dir.join("data.bin");
-        write_atomic(&target, b"ok").unwrap();
-
-        let partials: Vec<_> = fs::read_dir(&dir)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_name().to_string_lossy().contains(".partial"))
-            .collect();
-        assert!(partials.is_empty(), "no .partial files should remain");
-    }
-
-    #[test]
-    fn write_atomic_overwrites_existing() {
-        let dir = test_dir("write_atomic_overwrite");
-        let target = dir.join("file.bin");
-        fs::write(&target, b"old").unwrap();
-
-        write_atomic(&target, b"new").unwrap();
-        assert_eq!(fs::read(&target).unwrap(), b"new");
-    }
-}
-
 /// Read `words` big-endian u32s and check the magic number.
 fn read_header(bytes: &[u8], words: usize, magic: u32, what: &str) -> Result<Vec<usize>> {
     if bytes.len() < words * 4 {
@@ -321,4 +248,135 @@ fn read_header(bytes: &[u8], words: usize, magic: u32, what: &str) -> Result<Vec
         )));
     }
     Ok(values)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A fresh directory under the system temp dir, removed on drop.
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(name: &str) -> TempDir {
+            let dir =
+                std::env::temp_dir().join(format!("fastnn-mnist-{}-{name}", std::process::id()));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap();
+            TempDir(dir)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// A valid IDX image file holding `count` one-pixel images.
+    fn image_file(count: u32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for word in [IMAGE_MAGIC, count, 1, 1] {
+            bytes.extend_from_slice(&word.to_be_bytes());
+        }
+        bytes.resize(IMAGE_HEADER + count as usize, 7);
+        bytes
+    }
+
+    fn partials_in(dir: &Path) -> usize {
+        fs::read_dir(dir)
+            .unwrap()
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .ends_with(".partial")
+            })
+            .count()
+    }
+
+    #[test]
+    fn write_atomic_writes_the_bytes_and_leaves_no_partial() {
+        let dir = TempDir::new("write");
+        let target = dir.0.join("data.bin");
+        write_atomic(&target, b"hello").unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"hello");
+        assert_eq!(partials_in(&dir.0), 0);
+    }
+
+    #[test]
+    fn write_atomic_replaces_an_existing_file() {
+        let dir = TempDir::new("replace");
+        let target = dir.0.join("data.bin");
+        fs::write(&target, b"old").unwrap();
+        write_atomic(&target, b"new").unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"new");
+    }
+
+    #[test]
+    fn write_atomic_cleans_up_when_the_rename_fails() {
+        let dir = TempDir::new("rename-fails");
+        // A file cannot replace a directory, so the rename fails after the write.
+        let target = dir.0.join("taken");
+        fs::create_dir(&target).unwrap();
+        assert!(write_atomic(&target, b"x").is_err());
+        assert_eq!(partials_in(&dir.0), 0);
+    }
+
+    #[test]
+    fn a_valid_cached_file_is_used_without_fetching() {
+        let dir = TempDir::new("valid");
+        fs::write(dir.0.join("images"), image_file(3)).unwrap();
+        let (_, count) = load_cached(&dir.0, "images", parse_images, |_, _| {
+            panic!("a valid cached file must not be fetched")
+        })
+        .unwrap();
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn a_missing_file_is_fetched() {
+        let dir = TempDir::new("missing");
+        let (_, count) = load_cached(&dir.0, "images", parse_images, |cache, name| {
+            let bytes = image_file(2);
+            write_atomic(&cache.join(name), &bytes)?;
+            Ok(bytes)
+        })
+        .unwrap();
+        assert_eq!(count, 2);
+        assert!(parse_images(&fs::read(dir.0.join("images")).unwrap()).is_ok());
+    }
+
+    #[test]
+    fn a_truncated_cached_file_is_fetched_again() {
+        let dir = TempDir::new("truncated");
+        // Valid magic and header, body cut short: what an interrupted write leaves.
+        let mut truncated = image_file(5);
+        truncated.truncate(IMAGE_HEADER + 2);
+        fs::write(dir.0.join("images"), &truncated).unwrap();
+
+        let fetches = std::cell::Cell::new(0);
+        let (_, count) = load_cached(&dir.0, "images", parse_images, |cache, name| {
+            fetches.set(fetches.get() + 1);
+            let bytes = image_file(5);
+            write_atomic(&cache.join(name), &bytes)?;
+            Ok(bytes)
+        })
+        .unwrap();
+        assert_eq!(count, 5);
+        assert_eq!(fetches.get(), 1);
+    }
+
+    #[test]
+    fn a_bad_download_names_the_file() {
+        let dir = TempDir::new("bad-download");
+        fs::write(dir.0.join("images"), b"junk").unwrap();
+        let err = load_cached(&dir.0, "images", parse_images, |_, _| {
+            Ok(b"still junk".to_vec())
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("images"), "{err}");
+    }
 }
