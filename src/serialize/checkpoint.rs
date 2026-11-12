@@ -133,12 +133,8 @@ pub fn load_tensors(path: impl AsRef<Path>) -> Result<Checkpoint> {
         input.read_exact(&mut buf)?;
         let mut data = vec![0.0f32; numel];
         for (i, value) in data.iter_mut().enumerate() {
-            *value = f32::from_le_bytes([
-                buf[i * 4],
-                buf[i * 4 + 1],
-                buf[i * 4 + 2],
-                buf[i * 4 + 3],
-            ]);
+            *value =
+                f32::from_le_bytes([buf[i * 4], buf[i * 4 + 1], buf[i * 4 + 2], buf[i * 4 + 3]]);
         }
 
         tensors.insert(name, Tensor::from_vec(data, &shape));
