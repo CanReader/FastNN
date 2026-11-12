@@ -63,3 +63,27 @@ fn no_bias_preserves_forward_shape_and_trainable_weight() {
     output.sum().backward();
     assert_eq!(layer.weight.grad().unwrap().shape(), &[3, 2]);
 }
+
+#[test]
+#[should_panic(expected = "fan_in must be positive")]
+fn linear_zero_in_features_panics_with_clear_message() {
+    let _ = Linear::new(0, 10);
+}
+
+#[test]
+#[should_panic(expected = "fan_in must be positive")]
+fn linear_no_bias_zero_in_features_panics() {
+    let _ = Linear::no_bias(0, 10);
+}
+
+#[test]
+#[should_panic(expected = "fan_in + fan_out must be positive")]
+fn xavier_zero_fan_panics() {
+    let _ = Tensor::xavier_uniform(&[3, 3], 0, 0);
+}
+
+#[test]
+fn rng_uniform_degenerate_range_returns_constant() {
+    let vals = fastnn::rng::uniform(5, 3.0, 3.0);
+    assert_eq!(vals, vec![3.0; 5]);
+}

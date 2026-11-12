@@ -94,6 +94,7 @@ impl Module for Linear {
 
 /// Uniform over `±1/√fan_in`, the bias init shared with the conv layers.
 pub(super) fn uniform_bias(out_features: usize, fan_in: usize) -> Tensor {
+    assert!(fan_in > 0, "uniform_bias: fan_in must be positive, got 0");
     let bound = 1.0 / (fan_in as f32).sqrt();
     Tensor::uniform(&[out_features], -bound, bound)
 }
