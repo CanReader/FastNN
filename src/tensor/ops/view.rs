@@ -200,6 +200,7 @@ impl Tensor {
 
     /// Join tensors along a new dimension inserted at `axis`.
     pub fn stack(parts: &[&Tensor], axis: usize) -> Tensor {
+        assert!(!parts.is_empty(), "stack: needs at least one tensor");
         let lifted: Vec<Tensor> = parts.iter().map(|t| t.unsqueeze(axis)).collect();
         Tensor::cat(&lifted.iter().collect::<Vec<_>>(), axis)
     }
