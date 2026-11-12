@@ -185,7 +185,13 @@ fn check_sequence(input: &Tensor, input_size: usize, layer: &str) -> (usize, usi
         "{layer} expects {input_size} features, got {:?}",
         input.shape()
     );
-    (input.dim(0), input.dim(1))
+    let (batch, steps) = (input.dim(0), input.dim(1));
+    assert!(
+        steps > 0,
+        "{layer}: sequence length is 0 in shape {:?}",
+        input.shape()
+    );
+    (batch, steps)
 }
 
 /// Timestep `t` as `[batch, features]`.
