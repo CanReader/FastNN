@@ -69,8 +69,7 @@ pub fn load(module: &dyn Module, path: impl AsRef<Path>) -> Result<()> {
 
 /// Write named tensors to `path`.
 ///
-/// The write is atomic: data lands in a per-process temp file, is fsynced, then
-/// renamed over `path`, so a crash mid-write never destroys an existing file.
+/// Written atomically: a crash mid-save leaves the previous file intact.
 pub fn save_tensors(tensors: &Checkpoint, path: impl AsRef<Path>) -> Result<()> {
     write_atomic(path.as_ref(), |file| {
         let mut out = BufWriter::new(&mut *file);

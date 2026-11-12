@@ -31,8 +31,7 @@ pub struct LoadReport {
 
 /// Write a module's parameters and buffers as `F32` safetensors.
 ///
-/// The write is atomic: data lands in a per-process temp file, is fsynced, then
-/// renamed over `path`, so a crash mid-write never destroys an existing file.
+/// Written atomically: a crash mid-save leaves the previous file intact.
 pub fn save_safetensors(module: &dyn Module, path: impl AsRef<Path>) -> Result<()> {
     let mut tensors: BTreeMap<String, Tensor> = BTreeMap::new();
     for (name, param) in module.named_parameters() {
