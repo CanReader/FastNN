@@ -2,7 +2,7 @@
 
 use fastnn::autograd::detect_anomaly;
 use fastnn::prelude::*;
-use fastnn::serialize::{load_tensors, load_training, save_tensors, save_training, Checkpoint};
+use fastnn::serialize::{Checkpoint, load_tensors, load_training, save_tensors, save_training};
 
 /// Deleted on drop.
 struct TempFile(std::path::PathBuf);
@@ -424,7 +424,7 @@ fn truncated_fdl_checkpoint_does_not_destroy_the_good_copy() {
     assert!(!loaded.is_empty(), "good checkpoint should have tensors");
 
     // Simulate a crash: truncate the file to a few bytes.
-    std::fs::write(file.path(), &[0u8; 8]).unwrap();
+    std::fs::write(file.path(), [0u8; 8]).unwrap();
 
     // The truncated file must fail to load.
     assert!(
@@ -456,7 +456,7 @@ fn truncated_safetensors_does_not_destroy_the_good_copy() {
     let good = model.parameters()[0].value().to_vec();
 
     // Simulate a crash: truncate the file.
-    std::fs::write(&path, &[0u8; 4]).unwrap();
+    std::fs::write(&path, [0u8; 4]).unwrap();
 
     // The truncated file must fail to load.
     let fresh = Sequential::new().add(Linear::new(4, 2));
@@ -485,13 +485,11 @@ fn atomic_write_cleans_up_temp_on_fdl_save() {
     let model = small_model();
     save(&model, file.path()).unwrap();
 
-    let tmp = file
-        .path()
-        .with_file_name(format!(
-            "{}.partial.{}",
-            file.path().file_name().unwrap().to_str().unwrap(),
-            std::process::id()
-        ));
+    let tmp = file.path().with_file_name(format!(
+        "{}.partial.{}",
+        file.path().file_name().unwrap().to_str().unwrap(),
+        std::process::id()
+    ));
     assert!(
         !tmp.exists(),
         "temp file should be renamed away after a successful save"

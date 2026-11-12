@@ -25,10 +25,7 @@ pub(crate) fn write_atomic(
     Ok(())
 }
 
-fn write_and_sync(
-    path: &Path,
-    write_fn: impl FnOnce(&mut File) -> Result<()>,
-) -> Result<()> {
+fn write_and_sync(path: &Path, write_fn: impl FnOnce(&mut File) -> Result<()>) -> Result<()> {
     let mut file = File::create(path)?;
     write_fn(&mut file)?;
     file.sync_all()?;
