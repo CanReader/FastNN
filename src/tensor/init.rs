@@ -43,12 +43,14 @@ impl Tensor {
 
     /// Kaiming (He) uniform, bounds `±√(6 / fan_in)`. For ReLU-family layers.
     pub fn kaiming_uniform(shape: &[usize], fan_in: usize) -> Tensor {
+        assert!(fan_in > 0, "kaiming_uniform: fan_in must be positive, got 0 for shape {shape:?}");
         let bound = (6.0 / fan_in as f32).sqrt();
         Tensor::uniform(shape, -bound, bound)
     }
 
     /// Xavier (Glorot) uniform, for `tanh` and `sigmoid` layers.
     pub fn xavier_uniform(shape: &[usize], fan_in: usize, fan_out: usize) -> Tensor {
+        assert!(fan_in + fan_out > 0, "xavier_uniform: fan_in + fan_out must be positive, got 0 for shape {shape:?}");
         let bound = (6.0 / (fan_in + fan_out) as f32).sqrt();
         Tensor::uniform(shape, -bound, bound)
     }

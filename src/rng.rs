@@ -22,6 +22,9 @@ pub fn with_rng<T>(f: impl FnOnce(&mut StdRng) -> T) -> T {
 
 /// `n` samples from the uniform distribution on `[lo, hi)`.
 pub fn uniform(n: usize, lo: f32, hi: f32) -> Vec<f32> {
+    if lo == hi {
+        return vec![lo; n];
+    }
     with_rng(|rng| (0..n).map(|_| rng.random_range(lo..hi)).collect())
 }
 
