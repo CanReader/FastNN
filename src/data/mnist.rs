@@ -2,11 +2,11 @@
 //! `~/.fastnn/datasets/mnist`.
 
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::error::{Error, Result};
+use crate::serialize::atomic::write_atomic_bytes;
 use crate::tensor::Tensor;
 
 use super::dataset::Dataset;
@@ -163,33 +163,8 @@ fn fetch(cache: &Path, name: &str) -> Result<Vec<u8>> {
     let mut raw = Vec::new();
     flate2::read::GzDecoder::new(&compressed[..]).read_to_end(&mut raw)?;
 
-    write_atomic(&cache.join(name), &raw)?;
+    write_atomic_bytes(&cache.join(name), &raw)?;
     Ok(raw)
-}
-
-/// Write `bytes` to `target` so a crash leaves it either absent or complete:
-/// a temporary file next to it, `sync_all`, then a rename into place.
-fn write_atomic(target: &Path, bytes: &[u8]) -> Result<()> {
-    // The pid and a counter keep concurrent writers, in and across processes,
-    // off each other's temporary file.
-    static SERIAL: AtomicU32 = AtomicU32::new(0);
-    let name = target.file_name().unwrap_or_default().to_string_lossy();
-    let partial = target.with_file_name(format!(
-        "{name}.{}.{}.partial",
-        std::process::id(),
-        SERIAL.fetch_add(1, Ordering::Relaxed)
-    ));
-
-    let written = (|| {
-        let mut file = fs::File::create(&partial)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        fs::rename(&partial, target)
-    })();
-    if written.is_err() {
-        let _ = fs::remove_file(&partial);
-    }
-    written.map_err(Error::from)
 }
 
 /// IDX images: magic, count, rows, cols, then one byte per pixel.
@@ -283,48 +258,6 @@ mod tests {
         bytes
     }
 
-    fn partials_in(dir: &Path) -> usize {
-        fs::read_dir(dir)
-            .unwrap()
-            .filter(|entry| {
-                entry
-                    .as_ref()
-                    .unwrap()
-                    .file_name()
-                    .to_string_lossy()
-                    .ends_with(".partial")
-            })
-            .count()
-    }
-
-    #[test]
-    fn write_atomic_writes_the_bytes_and_leaves_no_partial() {
-        let dir = TempDir::new("write");
-        let target = dir.0.join("data.bin");
-        write_atomic(&target, b"hello").unwrap();
-        assert_eq!(fs::read(&target).unwrap(), b"hello");
-        assert_eq!(partials_in(&dir.0), 0);
-    }
-
-    #[test]
-    fn write_atomic_replaces_an_existing_file() {
-        let dir = TempDir::new("replace");
-        let target = dir.0.join("data.bin");
-        fs::write(&target, b"old").unwrap();
-        write_atomic(&target, b"new").unwrap();
-        assert_eq!(fs::read(&target).unwrap(), b"new");
-    }
-
-    #[test]
-    fn write_atomic_cleans_up_when_the_rename_fails() {
-        let dir = TempDir::new("rename-fails");
-        // A file cannot replace a directory, so the rename fails after the write.
-        let target = dir.0.join("taken");
-        fs::create_dir(&target).unwrap();
-        assert!(write_atomic(&target, b"x").is_err());
-        assert_eq!(partials_in(&dir.0), 0);
-    }
-
     #[test]
     fn a_valid_cached_file_is_used_without_fetching() {
         let dir = TempDir::new("valid");
@@ -341,7 +274,7 @@ mod tests {
         let dir = TempDir::new("missing");
         let (_, count) = load_cached(&dir.0, "images", parse_images, |cache, name| {
             let bytes = image_file(2);
-            write_atomic(&cache.join(name), &bytes)?;
+            fs::write(cache.join(name), &bytes)?;
             Ok(bytes)
         })
         .unwrap();
@@ -361,7 +294,7 @@ mod tests {
         let (_, count) = load_cached(&dir.0, "images", parse_images, |cache, name| {
             fetches.set(fetches.get() + 1);
             let bytes = image_file(5);
-            write_atomic(&cache.join(name), &bytes)?;
+            fs::write(cache.join(name), &bytes)?;
             Ok(bytes)
         })
         .unwrap();
