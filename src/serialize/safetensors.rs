@@ -60,17 +60,16 @@ pub fn save_safetensors(module: &dyn Module, path: impl AsRef<Path>) -> Result<(
     }
     header.push('}');
 
-    let mut buf = Vec::with_capacity(8 + header.len() + offset);
-    buf.extend_from_slice(&(header.len() as u64).to_le_bytes());
-    buf.extend_from_slice(header.as_bytes());
-    for tensor in tensors.values() {
-        for value in tensor.to_vec() {
-            buf.extend_from_slice(&value.to_le_bytes());
-        }
-    }
-
     write_atomic(path.as_ref(), |file| {
-        file.write_all(&buf)?;
+        let mut w = std::io::BufWriter::new(file);
+        w.write_all(&(header.len() as u64).to_le_bytes())?;
+        w.write_all(header.as_bytes())?;
+        for tensor in tensors.values() {
+            for value in tensor.to_vec() {
+                w.write_all(&value.to_le_bytes())?;
+            }
+        }
+        w.flush()?;
         Ok(())
     })
 }
